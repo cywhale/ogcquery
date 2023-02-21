@@ -6,6 +6,7 @@ const url = 'https://neo.gsfc.nasa.gov/wms/wms'
 //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
 //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
 const selectedService = 'wms'.toUpperCase() //'wmts'.toUpperCase()
+const pattern = null //'*_M' //'blue*' //'*fire*'
 
 const getCapabilities = async (url, service) => {
     const capabilitiesUrl = `${url}?service=${service}&request=GetCapabilities`
@@ -44,8 +45,8 @@ if (selectedService == 'WMS') {
 const isMultiLay = Array.isArray(layers)
 //console.log("MultiLay: ", isMultiLay, typeof layers)
 
-const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = []) => {
-    let layx, bbox
+const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
+    let layx, bbox, re
     let key_prefix = service == 'WMS' ? '' : 'ows:'
     let key_title = service == 'WMS' ? 'Title' : `${key_prefix}Identifier`
     let key_layname = service == 'WMS' ? 'Name' : `${key_prefix}Identifier`
@@ -56,7 +57,31 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = []) => 
         } else {
             layx = layer
         }*/
-    layx = layer
+    if (!layer[key_layname] && layer.Layer) {
+        layx = layer.Layer
+    } else {
+        layx = layer
+    }
+
+    if (!layx[key_layname]) {
+        console.log("Error layer: ", layx)
+        return null
+    } else {
+        if (pattern && pattern.trim() !== '') {
+            let patx = pattern.trim()
+            let fuzzyFlag = patx.indexOf('*')
+            if (fuzzyFlag < 0 && layx[key_layname] !== patx) {
+                return null
+            } else if (fuzzyFlag >= 0) {
+                patx = decodeURIComponent(patx).replace(/\*/g, '(.*)')
+                re = new RegExp(`^${patx}$`, "i")
+                if (!re.test(layx[key_layname])) {
+                    return null
+                }
+            }
+        }
+    }
+
     if (service == 'WMS' && !layx[key_bbox]) {
         bbox = bbox0
     } else if (service == 'WMS') {
@@ -156,12 +181,16 @@ if (isMultiLay) {
         if (selectedService == 'WMS' && isMultiLay && layx.Layer && Array.isArray(layx.Layer)) {
             for (let j = 0; j < layx.Layer.length; j++) {
                 layy = layx.Layer[j]
-                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0)
-                result.push(itemx)
+                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, pattern)
+                if (itemx) {
+                    result.push(itemx)
+                }
             }
         } else {
-            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0)
-            result.push(itemx)
+            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0, pattern)
+            if (itemx) {
+                result.push(itemx)
+            }
         }
     }
 } else {
@@ -210,11 +239,14 @@ if (isMultiLay) {
             TileMatrixSet: Array.isArray(layx.TileMatrixSetLink) ? layx.TileMatrixSetLink[0].TileMatrixSet : layx.TileMatrixSetLink.TileMatrixSet,
         }
     }*/
-    itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0)
-    result.push(itemx)
+    itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0, pattern)
+    if (itemx) {
+        result.push(itemx)
+    }
 }
 
 if (isMultiLay) {
+    console.log("Total: ", result.length)
     console.log(result[0], result[1])
 } else {
     console.log(result[0])
