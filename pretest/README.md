@@ -1,0 +1,1 @@
+# ogcquery preliminary test  1. use python  2. use nodejs
