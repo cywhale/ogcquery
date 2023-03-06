@@ -1,0 +1,282 @@
+// All test example
+  // 'https://neo.gsfc.nasa.gov/wms/wms'
+  // 'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
+  // 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
+  // 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
+//Other WMS
+  // layers is digit(0, 1,...) numbered
+  // 'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer
+  // nested Layers array in Layer object Layer: {...,Layer:[]} 
+  // 'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
+
+
+// Capabilities xml link
+  // https://neo.gsfc.nasa.gov/wms/wms?service=WMS&request=GetCapabilities
+  // https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms?service=WMS&request=GetCapabilities
+  // https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS?service=WMTS&request=GetCapabilities
+  // https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi?service=WMTS&request=GetCapabilities
+  // https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?service=WMS&request=GetCapabilities
+
+// Endpoint of service examples
+  // https://nasa-gibs.github.io/gibs-api-docs/access-basics/#ogc-web-map-service-wms
+
+// Functions provided by owslib (python) examples:
+  // https://notebook.community/openearth/notebooks/ahn2
+
+
+/* WMS data of 'https://neo.gsfc.nasa.gov/wms/wms'
+{
+  WMS_Capabilities: {
+    Service: {
+      Name: 'WMS',
+      Title: 'NASA Earth Observations (NEO) WMS',
+      Abstract: 'Remote sensing imagery from NASA Earth Observations (NEO).',
+      KeywordList: [Object],
+      OnlineResource: [Object],
+      ContactInformation: [Object], ...
+    },
+    Capability: { Request: [Object], Exception: [Object], Layer: [Object] }
+}
+
+Layer:
+{
+  Title: 'NASA Earth Observations (NEO) WMS',
+  CRS: 'CRS:84',
+  EX_GeographicBoundingBox: {
+    westBoundLongitude: -180,
+    eastBoundLongitude: 180,
+    southBoundLatitude: -90,
+    northBoundLatitude: 90
+  },
+  BoundingBox: {
+    '$miny': -90,
+    '$minx': -180,
+    '$maxy': 90,
+    '$maxx': 180,
+    '$CRS': 'CRS:84'
+  },
+  Layer: [
+    {
+      Title: 'Active Fires',
+      Abstract: "<p>Fire is a recurring part of nature.  Wildfires can be caused by lightning striking a forest canopy or, in a few isolated cases, by lava or hot rocks ejected from erupting volcanoes.  Most fires worldwide are started by humans, sometimes accidentally and sometimes on purpose.  Not all fires are bad.  Fire clears away dead and dying underbrush, which can help restore forest ecosystems to good health.  Humans use fire as a tool in slash-and-burn agriculture to speed up the process of breaking down unwanted vegetation into the soil.  Humans also use fire to clear away old-growth forests to make room for living spaces, roads, and fields for raising crops and cattle.  But not all fires are good.  Wildfires can destroy natural resources and human structures.  Globally, fire plays a major role in Earth's carbon cycle by releasing carbon into the air, and by consuming trees that would otherwise absorb carbon from the air during photosynthesis.  These maps show the locations of actively burning fires around the world, detected by instruments aboard NASA satellites.</p>",
+      Layer: [Array]
+    },
+    {...}
+  ]
+}
+// Note it's still an "Array" inside Layer (Layer.Layer.Layer...)
+Inside layer: [
+  {
+    Name: 'MODAL2_M_AER_OD',
+    Title: 'Aerosol Optical Thickness (1 month - Terra/MODIS)',
+    Dimension: {
+      '#text': '2000-03-01/2023-01-01/P1M',
+      '$units': 'ISO8601',
+      '$name': 'time',
+      '$default': '2023-01-01'
+    },
+    MetadataURL: { '$type': 'FGDC', Format: 'text/xml', OnlineResource: [Object] },
+    DataURL: { Format: 'text/html', OnlineResource: [Object] },
+    Style: [ [Object], [Object] ]
+  },
+  {
+    Name: 'MYDAL2_M_AER_OD',
+    Title: 'Aerosol Optical Thickness (1 month - Aqua/MODIS)',
+    Dimension: {
+      '#text': '2002-07-01/2023-01-01/P1M',
+      '$units': 'ISO8601',
+      '$name': 'time',
+      '$default': '2023-01-01'
+    },
+    MetadataURL: { '$type': 'FGDC', Format: 'text/xml', OnlineResource: [Object] },
+    DataURL: { Format: 'text/html', OnlineResource: [Object] },
+    Style: [ [Object], [Object] ]
+  },
+  {...}
+]
+// Info inside
+Layer MetadataURL: {
+  '$xlink:href': 'https://neo.gsfc.nasa.gov/servlet/FGDCMetadata?datasetId=MODAL2_M_AER_OD'
+}
+Layer DataURL: {
+  '$xlink:type': 'simple',
+  '$xlink:href': 'https://neo.gsfc.nasa.gov/view.php?datasetId=MODAL2_M_AER_OD'
+}
+Layer Style: {
+  Name: 'rgb',
+  Title: 'RGB Style',
+  Abstract: 'A colored representation of the data.',
+  LegendURL: {
+    '$width': 200,
+    '$height': 35,
+    Format: 'image/png',
+    OnlineResource: {
+      '$xlink:type': 'simple',
+      '$xlink:href': 'https://neo.gsfc.nasa.gov/palettes/modis_aer_od.png'
+    }
+  }
+}
+
+// if only single layer (WMS)
+{ ...
+  Layer: {
+    Name: 'mhw_dtime',
+    Title: 'mhw_dtime',
+    Abstract: 'Gridded (0.25 degree) Marine Heatwave',
+    KeywordList: { Keyword: [Array] },
+    CRS: [ 'EPSG:4326', 'CRS:84' ],
+    EX_GeographicBoundingBox: {
+      westBoundLongitude: -180,
+      eastBoundLongitude: 180,
+      southBoundLatitude: -90,
+      northBoundLatitude: 90
+    },
+    BoundingBox: [ [Object], [Object] ],
+    Attribution: {
+      Title: 'Ocean Data Bank (ODB), IONTU, Taiwan',
+      OnlineResource: [Object]
+    },
+    Style: [ [Object], [Object] ]
+  }
+}
+*/
+/* WMTS 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
+// single layer (WMTS)
+{
+  Capabilities: {
+    ...
+    '$xsi:schemaLocation': 'http://www.opengis.net/wmts/1.0 http://schemas.opengis.net/wmts/1.0/wmtsGetCapabilities_response.xsd',
+    '$version': '1.0.0',
+    'ows:ServiceIdentification': {
+      'ows:Title': 'World_Imagery',
+      'ows:ServiceType': 'OGC WMTS',
+      'ows:ServiceTypeVersion': '1.0.0'
+    },
+    'ows:OperationsMetadata': { 'ows:Operation': [Array] },
+    Contents: { Layer: [Object], TileMatrixSet: [Array] },
+    ServiceMetadataURL: {
+      '$xlink:href': 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS/1.0.0/WMTSCapabilities.xml'
+    }
+  }
+}
+Services (ServiceIdentification):
+{
+  'ows:Title': 'World_Imagery',
+  'ows:ServiceType': 'OGC WMTS',
+  'ows:ServiceTypeVersion': '1.0.0'
+}
+Layer: (hierarchy not the same as WMS, less 1 hierarchy, only Layer, not Layer.Layer
+{
+  'ows:Title': 'World_Imagery',
+  'ows:Identifier': 'World_Imagery',
+  'ows:BoundingBox': {
+    '$crs': 'urn:ogc:def:crs:EPSG::3857',
+    'ows:LowerCorner': '-2.003750722959434E7 -1.997186888040859E7',
+    'ows:UpperCorner': '2.003750722959434E7 1.9971868880408563E7'
+  },
+  'ows:WGS84BoundingBox': {
+    '$crs': 'urn:ogc:def:crs:OGC:2:84',
+    'ows:LowerCorner': '-179.99999000000003 -85.00000000000003',
+    'ows:UpperCorner': '179.99999000000003 85.0'
+  },
+  Style: {
+    '$isDefault': true,
+    'ows:Title': 'Default Style',
+    'ows:Identifier': 'default'
+  },
+  Format: 'image/jpeg',
+  TileMatrixSetLink: [
+    { TileMatrixSet: 'default028mm' },
+    { TileMatrixSet: 'GoogleMapsCompatible' }
+  ],
+  ResourceURL: {
+    '$format': 'image/jpeg',
+    '$resourceType': 'tile',
+    '$template': 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS/tile/1.0.0/World_Imagery/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg'
+  }
+}
+// MultiLayers (WMTS)
+Layer:
+[
+  {
+    'ows:Title': {
+      '#text': 'Columnar Cloud Liquid Water (Day, AMSR2, GCOM-W1)',
+      '$xml:lang': 'en'
+    },
+    'ows:WGS84BoundingBox': {
+      '$crs': 'urn:ogc:def:crs:OGC:2:84',
+      'ows:LowerCorner': '-180 -90',
+      'ows:UpperCorner': '180 90'
+    },
+    'ows:Identifier': 'AMSR2_Cloud_Liquid_Water_Day',
+    'ows:Metadata': [ [Object], [Object], [Object] ],
+    Style: {
+      '$isDefault': true,
+      'ows:Title': [Object],
+      'ows:Identifier': 'default',
+      LegendURL: [Array]
+    },
+    Format: 'image/png',
+    Dimension: {
+      'ows:Identifier': 'Time',
+      'ows:UOM': 'ISO8601',
+      Default: '2020-06-10',
+      Current: false,
+      Value: '2015-06-07/2020-06-10/P1D'
+    },
+    TileMatrixSetLink: { TileMatrixSet: '2km' },
+    ResourceURL: {
+      '$format': 'image/png',
+      '$resourceType': 'tile',
+      '$template': 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/AMSR2_Cloud_Liquid_Water_Day/default/{Time}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png'
+    }
+  },
+  {....}
+]
+// Inside WMTS layer
+Layer Metadata: [
+  {
+    '$xlink:type': 'simple',
+    '$xlink:role': 'http://earthdata.nasa.gov/gibs/metadata-type/colormap',
+    '$xlink:href': 'https://gibs.earthdata.nasa.gov/colormaps/v1.3/AMSR2_Cloud_Liquid_Water_Day.xml',
+    '$xlink:title': 'GIBS Color Map: Data - RGB Mapping'
+  },
+  {
+    '$xlink:type': 'simple',
+    '$xlink:role': 'http://earthdata.nasa.gov/gibs/metadata-type/colormap/1.0',
+    '$xlink:href': 'https://gibs.earthdata.nasa.gov/colormaps/v1.0/AMSR2_Cloud_Liquid_Water_Day.xml',
+    '$xlink:title': 'GIBS Color Map: Data - RGB Mapping'
+  },
+  {
+    '$xlink:type': 'simple',
+    '$xlink:role': 'http://earthdata.nasa.gov/gibs/metadata-type/colormap/1.3',
+    '$xlink:href': 'https://gibs.earthdata.nasa.gov/colormaps/v1.3/AMSR2_Cloud_Liquid_Water_Day.xml',
+    '$xlink:title': 'GIBS Color Map: Data - RGB Mapping'
+  }
+]
+Layer Style: {
+  '$isDefault': true,
+  'ows:Title': { '#text': 'default', '$xml:lang': 'en' },
+  'ows:Identifier': 'default',
+  LegendURL: [
+    {
+      '$format': 'image/svg+xml',
+      '$xlink:type': 'simple',
+      '$xlink:role': 'http://earthdata.nasa.gov/gibs/legend-type/vertical',
+      '$xlink:href': 'https://gibs.earthdata.nasa.gov/legends/AMSR2_Cloud_Liquid_Water_Day_V.svg',
+      '$xlink:title': 'GIBS Color Map Legend: Vertical',
+      '$width': 135,
+      '$height': 288
+    },
+    {
+      '$format': 'image/svg+xml',
+      '$xlink:type': 'simple',
+      '$xlink:role': 'http://earthdata.nasa.gov/gibs/legend-type/horizontal',
+      '$xlink:href': 'https://gibs.earthdata.nasa.gov/legends/AMSR2_Cloud_Liquid_Water_Day_H.svg',
+      '$xlink:title': 'GIBS Color Map Legend: Horizontal',
+      '$width': 378,
+      '$height': 85
+    }
+  ]
+*/
+

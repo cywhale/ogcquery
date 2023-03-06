@@ -51,19 +51,19 @@ export default async function ogcqry (fastify, opts, next) {
   }
 
   const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
-    let layx, bbox, re
-    let key_prefix = service == 'WMS' ? '' : 'ows:'
-    let key_title = service == 'WMS' ? 'Title' : `${key_prefix}Identifier`
-    let key_layname = service == 'WMS' ? 'Name' : `${key_prefix}Identifier`
-    let key_bbox = service == 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
+    let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
+    let key_prefix = service === 'WMS' ? '' : 'ows:'
+    let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
+    let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
+    let key_bbox = service === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
 
-    if (!layer[key_layname] && layer.Layer) {
+    if (layer[key_layname] === undefined && layer.Layer) { //some layer name have value 0 <- so cannot use !layx[key_layname]
         layx = layer.Layer
     } else {
         layx = layer
     }
 
-    if (!layx[key_layname]) {
+    if (layx[key_layname] === undefined) {
         //console.log("Error layer: ", layx)
         return null
     } else {
@@ -75,19 +75,29 @@ export default async function ogcqry (fastify, opts, next) {
             } else if (fuzzyFlag >= 0) {
                 patx = decodeURIComponent(patx).replace(/\*/g, '(.*)')
                 re = new RegExp(`^${patx}$`, "i")
-                if (!re.test(layx[key_layname])) {
+                isLayerNotNum = isNaN(parseInt(layx[key_layname]))
+                if (!isLayerNotNum) {
+                    if (!re.test(layx[key_title])) {
+                        return null
+                    }
+                } else if (!re.test(layx[key_layname])) {
                     return null
                 }
             }
         }
     }
 
-    if (service == 'WMS' && !layx[key_bbox]) {
+    if (service === 'WMS' && !layx[key_bbox]) {
         bbox = bbox0
-    } else if (service == 'WMS') {
-        bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
-        layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
-    } else {
+    } else if (service === 'WMS') {
+        if (Array.isArray(layx[key_bbox])) {
+            bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
+                    layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
+        } else {
+            bbox = [layx[key_bbox]['$minx'], layx[key_bbox]['$miny'],
+                    layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
+        }
+    } else if (service === 'WMTS') {
         bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
                 ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
     }
@@ -102,7 +112,7 @@ export default async function ogcqry (fastify, opts, next) {
         //keywords: [...layx.KeywordList.Keyword],
         //attribution: `${layx.Attribution.Title}: ${layx.Attribution.OnlineResource['$xlink:href']}`
     }
-    if (service == 'WMTS') {
+    if (service === 'WMTS') {
         itemx = {
             ...itemx,
             format: layx.Format,
@@ -176,43 +186,48 @@ export default async function ogcqry (fastify, opts, next) {
 
       let data = await getCapabilities(url, selectedService)
 
-      let key_capabilities = selectedService == 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
-      let key_prefix = selectedService == 'WMS' ? '' : 'ows:'
-      let key_content = selectedService == 'WMS' ? 'Capability' : 'Contents'
-      let key_meta = selectedService == 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
+      let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
+      let key_prefix = selectedService === 'WMS' ? '' : 'ows:'
+      let key_content = selectedService === 'WMS' ? 'Capability' : 'Contents'
+      let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
 
       let capa = data[key_capabilities]
       //let services = capa[key_meta]
       let layerobj = capa[key_content].Layer //Object.entries(capa.Capability.Layer)
-      //let key_title = selectedService == 'WMS' ? 'Title' : `${key_prefix}Identifier`
-      //let key_layname = selectedService == 'WMS' ? 'Name' : `${key_prefix}Identifier`
-      let key_bbox = selectedService == 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
-      //let key_metaurl = selectedService == 'WMS' ? 'MetadataURL' : `${key_prefix}Metadata`
-      //let key_dataurl = selectedService == 'WMS' ? 'DataURL' : //??
+      //let key_title = selectedService === 'WMS' ? 'Title' : `${key_prefix}Identifier`
+      //let key_layname = selectedService === 'WMS' ? 'Name' : `${key_prefix}Identifier`
+      let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
+      //let key_metaurl = selectedService === 'WMS' ? 'MetadataURL' : `${key_prefix}Metadata`
+      //let key_dataurl = selectedService === 'WMS' ? 'DataURL' : //??
 
       //console.log("Capabilities: ", capa)
       //console.log("Services: ", services)
       //console.log("Layers: ", layerobj)
       let layers
-      if (selectedService == 'WMS') {
+      if (selectedService === 'WMS') {
         layers = layerobj.Layer
       } else {
         layers = layerobj
       }
-      const isMultiLay = Array.isArray(layers)
+
+      let isMultiLay = Array.isArray(layers)
+      if (!isMultiLay && typeof layers === 'object' && layers.hasOwnProperty('Layer')) {
+        layers = layers.Layer
+        isMultiLay = Array.isArray(layers) // that's some XML has nested structure: Layer:{,..,Layer:[]}
+      }
 
       let result = [], layx, layy, itemx
       let bbox0 = []
       let layername = []
-      if (selectedService == 'WMS' && isMultiLay) {
+      if (selectedService === 'WMS' && isMultiLay && layerobj[key_bbox]) { //Note if like aboving nested structure, may have no bbox0
         bbox0 = [layerobj[key_bbox]['$minx'], layerobj[key_bbox]['$miny'],
-        layerobj[key_bbox]['$maxx'], layerobj[key_bbox]['$maxy']]
+                 layerobj[key_bbox]['$maxx'], layerobj[key_bbox]['$maxy']]
       }
 
       if (isMultiLay) {
         for (let i = 0; i < layers.length; i++) {
           layx = layers[i]
-          if (selectedService == 'WMS' && isMultiLay && layx.Layer && Array.isArray(layx.Layer)) {
+          if (selectedService === 'WMS' && isMultiLay && layx.Layer && Array.isArray(layx.Layer)) {
             for (let j = 0; j < layx.Layer.length; j++) {
                 layy = layx.Layer[j]
                 itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, pattern)
