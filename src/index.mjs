@@ -4,6 +4,9 @@ import Env from '@fastify/env'
 import { join } from 'desm'
 import configSecServ from './confighttps.mjs'
 import srvapp from './srvapp.mjs'
+import Swagger from '@fastify/swagger'
+import SwaggerUI from '@fastify/swagger-ui'
+import apiConf, { uiConf } from './config_swagger.mjs'
 
 const startServer = async () => {
   const PORT = process.env.PORT || 3403;
@@ -36,7 +39,9 @@ const startServer = async () => {
     if (err) console.error(err)
   })
 
-  fastify.register(srvapp)
+  await fastify.register(Swagger, apiConf)
+  await fastify.register(SwaggerUI, uiConf)
+  await fastify.register(srvapp)
 
   fastify.listen({ port: PORT }, function (err, address) {
     if (err) {

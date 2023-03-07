@@ -1,6 +1,6 @@
 import { parse } from 'arraybuffer-xml-parser'
 
-export const autoPrefix = '/ogcquery/v1'
+export const autoPrefix = '/ogcquery'
 
 export default async function ogcqry (fastify, opts, next) {
   const supportedOgcServices = ['WMS', 'WMTS']
@@ -9,17 +9,17 @@ export default async function ogcqry (fastify, opts, next) {
     type: 'object',
     properties: {
       url: { type: 'string',
-             description: 'URL of WMS/WMTS server. Example: https://neo.gsfc.nasa.gov/wms/wms',
+             description: 'URL of WMS/WMTS server, e.g. https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi',
       },
-      service: { type: 'string',
-             description: 'QGC service type, supported WMS or WMTS',
-             enum: supportedOgcServices
+      type: { type: 'string',
+              description: 'OGC service type, e.g. WMTS (supported WMS or WMTS)',
+              enum: supportedOgcServices
       },
       layer: { type: 'string',
-             description: 'QGC WMS/WMTS layer name (case-insensitive). Example: GEBCO_BATHY, and can be fuzzy-matched by using wildcard *, e.g. *bathy',
+               description: 'OGC WMS/WMTS layer name (case-insensitive), can be fuzzy-matched by wildcard *, e.g. *temperature',
       },
     },
-    required: ['url', 'service']
+    required: ['url', 'type']
   }
 
   const getCapabilities = async (url, service) => {
@@ -132,7 +132,7 @@ export default async function ogcqry (fastify, opts, next) {
   }
 
   const parseUrl = (requrl) => {
-      let qurlx = decodeURIComponent(requrl).replace(/(^"|^'|"$|'$)/g, '')
+      let qurlx = decodeURIComponent(requrl).replace(/(^"|^'|"$|'$|\?(.*)$)/g, '')
       fastify.log.info("Incoming req url: " + qurlx)
       try {
         const qryurl = new URL(qurlx)
@@ -174,7 +174,7 @@ export default async function ogcqry (fastify, opts, next) {
   // 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
   // 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
       const qryurl = parseUrl(req.query.url)
-      const selectedService = req.query.service.toUpperCase() //'wmts'.toUpperCase()
+      const selectedService = req.query.type.toUpperCase() //'wmts'.toUpperCase()
       if (!supportedOgcServices.includes(selectedService)) {
         let err = "Not support: " + selectedService + " yet for OGC service type"
         fastify.log.info(err)
