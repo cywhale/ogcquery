@@ -3,17 +3,64 @@ import { fetch } from 'undici'
 
 const url = //'https://neo.gsfc.nasa.gov/wms/wms'
     //'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
-    //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
-    //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
-    // other WMS
-    // layers is digit(0, 1,...) numbered
-    //'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WmsServer'
-    //'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer'
-    //'https://nowcoast.noaa.gov/arcgis/services/nowcoast/sat_meteo_imagery_time/MapServer/WMSServer'
-    'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
+    'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
+//'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
+// other WMS
+// layers is digit(0, 1,...) numbered, and multiple CRS
+//'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WmsServer'
+//'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer'
+//'https://nowcoast.noaa.gov/arcgis/services/nowcoast/sat_meteo_imagery_time/MapServer/WMSServer'
+//'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
+//'https://nrt.cmems-du.eu/thredds/wms/global-analysis-forecast-bio-001-028-daily'
+// CMEMS WMS: (SLA)
+//'https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4'
+// other WMTS
+//'https://wmts.nlsc.gov.tw/wmts' //only 3857, no WGS84
 
-const selectedService = 'wms'.toUpperCase() //'wmts'.toUpperCase()
-const pattern = '*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
+const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
+const pattern = '*' //'*temperature'  //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
+
+const getWMSbbox = (bboxobj) => {
+    let bbox = {}
+    let crs = []
+    if (Array.isArray(bboxobj)) {
+        for (let i = 0; i < bboxobj.length; i++) {
+            crs.push(bboxobj[i]['$CRS'])
+            bbox[crs[i]] = [bboxobj[i]['$minx'], bboxobj[i]['$miny'],
+            bboxobj[i]['$maxx'], bboxobj[i]['$maxy']]
+        }
+    } else {
+        crs.push(bboxobj['$CRS'])
+        bbox[crs[0]] = [bboxobj['$minx'], bboxobj['$miny'],
+        bboxobj['$maxx'], bboxobj['$maxy']]
+    }
+    return { bbox: bbox, crs: crs }
+}
+
+const getWMTSbbox = (layer) => {
+    let bbox = {}
+    let crs = []
+    let key_bbox = 'ows:WGS84BoundingBox'
+    if (layer.hasOwnProperty('ows:WGS84BoundingBox')) {
+        crs.push('CRS:84')
+        bbox['CRS:84'] = [...layer[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
+        ...layer[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
+    }
+    if (layer.hasOwnProperty('ows:BoundingBox')) {
+        key_bbox = 'ows:BoundingBox'
+        let crsidx = layer[key_bbox]['$crs'].indexOf('crs:')
+        let crstxt = layer[key_bbox]['$crs'].substr(crsidx + 4).replace('::', ':')
+        if (crstxt !== 'OGC:2:84' || !layer.hasOwnProperty('ows:WGS84BoundingBox')) {
+            if (crstxt === 'OGC:2:84') {
+                crstxt = 'CRS:84'
+            }
+            crs.push(crstxt)
+            bbox[crstxt] = [...layer[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
+            ...layer[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
+        }
+    }
+    return { bbox: bbox, crs: crs }
+}
 
 const getCapabilities = async (url, service) => {
     const capabilitiesUrl = `${url}?service=${service}&request=GetCapabilities`
@@ -29,19 +76,37 @@ let data = await getCapabilities(url, selectedService)
 let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
 let key_prefix = selectedService === 'WMS' ? '' : 'ows:'
 let key_content = selectedService === 'WMS' ? 'Capability' : 'Contents'
-//let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
+let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
 let capa = data[key_capabilities]
-//let services = capa[key_meta]
+let serviceinfo = capa[key_meta]
 let layerobj = capa[key_content].Layer //Object.entries(capa.Capability.Layer)
 //let key_title = selectedService === 'WMS' ? 'Title' : `${key_prefix}Identifier`
 //let key_layname = selectedService === 'WMS' ? 'Name' : `${key_prefix}Identifier`
-let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
+//let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
 //let key_metaurl = selectedService === 'WMS' ? 'MetadataURL' : `${key_prefix}Metadata`
 //let key_dataurl = selectedService === 'WMS' ? 'DataURL' : //??
 
 console.log("Capabilities: ", capa)
-//console.log("Services: ", services)
+//console.log("TileMatrixSet: ", capa.Contents.TileMatrixSet)
+//console.log("TileMatrixSet item0: ", capa.Contents.TileMatrixSet[0].TileMatrix)
+//console.log("TileMatrixSet item1: ", capa.Contents.TileMatrixSet[1].TileMatrix)
 //console.log("Layers: ", layerobj)
+
+if (selectedService === 'WMTS') {
+    if (capa.hasOwnProperty('ows:ServiceProvider')) {
+        serviceinfo['ows:ServiceProvider'] = capa['ows:ServiceProvider']
+    }
+    if (capa.hasOwnProperty('ows:OperationsMetadata')) {
+        serviceinfo['ows:OperationsMetadata'] = capa['ows:OperationsMetadata']
+    }
+    if (capa.hasOwnProperty('ServiceMetadataURL')) {
+        serviceinfo['ServiceMetadataURL'] = capa['ServiceMetadataURL']
+    }
+    if (capa.Contents && capa.Contents.hasOwnProperty('TileMatrixSet')) {
+        serviceinfo['TileMatrixSet'] = capa.Contents['TileMatrixSet']
+    }
+}
+console.log("Service Info: ", serviceinfo)
 
 let layers
 if (selectedService === 'WMS') {
@@ -62,7 +127,7 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
     let key_prefix = service === 'WMS' ? '' : 'ows:'
     let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
     let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
-    let key_bbox = service === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
+    //let key_bbox = service === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
     /*
         if (!isMulti && service === 'WMS') {
             layx = layer.Layer
@@ -99,25 +164,32 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         }
     }
 
+    //  let key_bbox = 'BoundingBox'
     if (service === 'WMS' && !layx[key_bbox]) {
         bbox = bbox0
     } else if (service === 'WMS') {
-        if (Array.isArray(layx[key_bbox])) {
-            bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
-            layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
-        } else {
-            bbox = [layx[key_bbox]['$minx'], layx[key_bbox]['$miny'],
-            layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
-        }
+        bbox = getWMSbbox(layx[key_bbox])
+        /*        if (Array.isArray(layx[key_bbox])) {
+                    bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
+                    layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
+                } else {
+                    bbox = [layx[key_bbox]['$minx'], layx[key_bbox]['$miny'],
+                    layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
+                }
+        */
     } else if (service === 'WMTS') {
-        bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
-        ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
+        bbox = getWMTSbbox(layx)
+        /*      key_bbox = layx.hasOwnProperty('ows:WGS84BoundingBox') ? 'ows:WGS84BoundingBox' : 'ows:BoundingBox'
+                bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
+                ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
+        */
     }
 
     let itemx = {
         name: layx[key_layname],
         title: layx[key_title],
-        bbox: bbox,
+        bbox: bbox.bbox,
+        crs: bbox.crs,
         dimension: layx.Dimension ?? '',
         //crs: layx.CRS,
         //abstract: layx.Abstract,
@@ -146,10 +218,12 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
 }
 
 let result = [], layx, layy, itemx
-let bbox0 = []
+let bbox0
+let key_bbox = 'BoundingBox'
 if (selectedService === 'WMS' && isMultiLay && layerobj[key_bbox]) {
-    bbox0 = [layerobj[key_bbox]['$minx'], layerobj[key_bbox]['$miny'],
-    layerobj[key_bbox]['$maxx'], layerobj[key_bbox]['$maxy']]
+    bbox0 = getWMSbbox(layerobj[key_bbox])
+    //bbox0 = [layerobj[key_bbox]['$minx'], layerobj[key_bbox]['$miny'],
+    //layerobj[key_bbox]['$maxx'], layerobj[key_bbox]['$maxy']]
 }
 
 if (isMultiLay) {

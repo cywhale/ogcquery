@@ -4,11 +4,45 @@
   // 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
   // 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
 //Other WMS
-  // layers is digit(0, 1,...) numbered
-  // 'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer
+  // layers is digit(0, 1,...) numbered and multiple CRS and BBOX
+  // https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer
+  /* CRS and BBOX like:
+  BoundingBox: [
+    {
+      '$CRS': 'CRS:84',
+      '$minx': -156.151771,
+      '$miny': 1,
+      '$maxx': 179.257328,
+      '$maxy': 60.027153
+    },
+    {
+      '$CRS': 'EPSG:4326',
+      '$minx': 1,
+      '$miny': -156.151771,
+      '$maxx': 60.027153,
+      '$maxy': 179.257328
+    },
+    {
+      '$CRS': 'EPSG:0',
+      '$minx': -156.151771,
+      '$miny': 1,
+      '$maxx': 179.257328,
+      '$maxy': 60.027153
+    }
+  ],
+*/
   // nested Layers array in Layer object Layer: {...,Layer:[]} 
-  // 'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
+  // https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd
+  // https://nowcoast.noaa.gov/arcgis/services/nowcoast/sat_meteo_imagery_time/MapServer/WMSServer
+//CMEMS/CMDS copernicus.eu: https://data.marine.copernicus.eu/products
+  // e.g Now can accept URL with?search (ogcquery will auto trim it)
+  // https://nrt.cmems-du.eu/thredds/wms/cmems_mod_glo_phy-cur_anfc_0.083deg_P1M-m?request=GetCapabilities&service=WMS
+  // https://nrt.cmems-du.eu/thredds/wms/global-analysis-forecast-bio-001-028-daily
+  // CMEMS WMS: (SLA)
+  // https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4
 
+//Other WMTS
+  //https://wmts.nlsc.gov.tw/wmts //only 3857, no WGS84
 
 // Capabilities xml link
   // https://neo.gsfc.nasa.gov/wms/wms?service=WMS&request=GetCapabilities
@@ -22,7 +56,6 @@
 
 // Functions provided by owslib (python) examples:
   // https://notebook.community/openearth/notebooks/ahn2
-
 
 /* WMS data of 'https://neo.gsfc.nasa.gov/wms/wms'
 {
@@ -196,6 +229,227 @@ Layer: (hierarchy not the same as WMS, less 1 hierarchy, only Layer, not Layer.L
   }
 }
 // MultiLayers (WMTS)
+Capabilities: {
+ '$xmlns': 'http://www.opengis.net/wmts/1.0',
+  '$xmlns:ows': 'http://www.opengis.net/ows/1.1',
+  '$xmlns:xlink': 'http://www.w3.org/1999/xlink',
+  '$xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+  '$xmlns:gml': 'http://www.opengis.net/gml',
+  '$xsi:schemaLocation': 'http://www.opengis.net/wmts/1.0     http://schemas.opengis.net/wmts/1.0/wmtsGetCapabilities_response.xsd',
+  '$version': '1.0.0',
+  'ows:ServiceIdentification': {
+    'ows:Title': {
+      '#text': 'NASA Global Imagery Browse Services for EOSDIS',
+      '$xml:lang': 'en'
+    },
+    'ows:Abstract': {
+      '#text': 'Near real time imagery from multiple NASA instruments',
+      '$xml:lang': 'en'
+    },
+    'ows:Keywords': { 'ows:Keyword': [Array] },
+    'ows:ServiceType': 'OGC WMTS',
+    'ows:ServiceTypeVersion': '1.0.0',
+    'ows:Fees': 'none',
+    'ows:AccessConstraints': 'none'
+  },
+  'ows:ServiceProvider': {
+    'ows:ProviderName': 'National Aeronautics and Space Administration',
+    'ows:ProviderSite': { '$xlink:href': 'https://earthdata.nasa.gov/gibs/' },
+    'ows:ServiceContact': {
+      'ows:IndividualName': '',
+      'ows:PositionName': '',
+      'ows:ContactInfo': [Object]
+    }
+  },
+  'ows:OperationsMetadata': { 'ows:Operation': [ [Object], [Object] ] },
+  Contents: {
+    '#text': "b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''b''",
+    Layer: [
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object],
+      ... 952 more items
+    ],
+    TileMatrixSet: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object]
+    ]
+  },
+  ServiceMetadataURL: {
+    '$xlink:href': 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml'
+  }
+}
+In TileMatrixSet
+TileMatrixSet:  [
+  {
+    'ows:Identifier': '16km',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [ [Object], [Object], [Object] ]
+  },
+  {
+    'ows:Identifier': '2km',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [ [Object], [Object], [Object], [Object], [Object], [Object] ]
+  },
+  {
+    'ows:Identifier': '1km',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object]
+    ]
+  },
+  {
+    'ows:Identifier': '500m',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ]
+  },
+  {
+    'ows:Identifier': '250m',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object]
+    ]
+  },
+  {
+    'ows:Identifier': '31.25m',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ]
+  },
+  {
+    'ows:Identifier': '15.625m',
+    'ows:SupportedCRS': 'urn:ogc:def:crs:OGC:1.3:CRS84',
+    TileMatrix: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object]
+    ]
+  }
+]
+in TileMatrix from TileMatrixSet item0:  [
+  {
+    'ows:Identifier': 0,
+    ScaleDenominator: 223632905.6114871,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 2,
+    MatrixHeight: 1
+  },
+  {
+    'ows:Identifier': 1,
+    ScaleDenominator: 111816452.8057436,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 3,
+    MatrixHeight: 2
+  },
+  {
+    'ows:Identifier': 2,
+    ScaleDenominator: 55908226.40287178,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 5,
+    MatrixHeight: 3
+  }
+]
+in TileMatrix from TileMatrixSet item1:  [
+  {
+    'ows:Identifier': 0,
+    ScaleDenominator: 223632905.6114871,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 2,
+    MatrixHeight: 1
+  },
+  {
+    'ows:Identifier': 1,
+    ScaleDenominator: 111816452.8057436,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 3,
+    MatrixHeight: 2
+  },
+  {
+    'ows:Identifier': 2,
+    ScaleDenominator: 55908226.40287178,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 5,
+    MatrixHeight: 3
+  },
+  {
+    'ows:Identifier': 3,
+    ScaleDenominator: 27954113.20143589,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 10,
+    MatrixHeight: 5
+  },
+  {
+    'ows:Identifier': 4,
+    ScaleDenominator: 13977056.60071795,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 20,
+    MatrixHeight: 10
+  },
+  {
+    'ows:Identifier': 5,
+    ScaleDenominator: 6988528.300358973,
+    TopLeftCorner: '-180 90',
+    TileWidth: 512,
+    TileHeight: 512,
+    MatrixWidth: 40,
+    MatrixHeight: 20
+  }
+]
+
 Layer:
 [
   {
@@ -279,4 +533,74 @@ Layer Style: {
     }
   ]
 */
+
+/* A only-3857-layer show: */
+Url:  https://wmts.nlsc.gov.tw/wmts?service=WMTS&request=GetCapabilities
+Capabilities:  {
+  '$xmlns': 'http://www.opengis.net/wmts/1.0',
+  '$xmlns:ows': 'http://www.opengis.net/ows/1.1',
+  '$xmlns:xlink': 'http://www.w3.org/1999/xlink',
+  '$xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+  '$xmlns:gml': 'http://www.opengis.net/gml',
+  '$xsi:schemaLocation': 'http://www.opengis.net/wmts/1.0 http://schemas.opengis.net/wmts/1.0/wmtsGetCapabilities_response.xsd',
+  '$version': '1.0.0',
+  'ows:ServiceIdentification': {
+    'ows:Title': 'Taiwan MAP Service',
+    'ows:ServiceType': 'OGC WMTS',
+    'ows:ServiceTypeVersion': '1.0.0'
+  },
+  'ows:OperationsMetadata': { 'ows:Operation': [ [Object], [Object] ] },
+  Contents: {
+    Layer: [
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object], [Object], [Object],
+      [Object], [Object], [Object], [Object],
+      ... 46 more items
+    ],
+    TileMatrixSet: {
+      'ows:Title': 'GoogleMapsCompatible',
+      'ows:Abstract': "the wellknown 'GoogleMapsCompatible' tile matrix set defined by OGC WMTS specification",
+      'ows:Identifier': 'GoogleMapsCompatible',
+      'ows:SupportedCRS': 'urn:ogc:def:crs:EPSG::3857',
+      WellKnownScaleSet: 'urn:ogc:def:wkss:OGC:1.0:GoogleMapsCompatible',
+      TileMatrix: [Array]
+    }
+  }
+}
+//Layer:
+  {
+    'ows:Title': '1/100000地形圖109',
+    'ows:Identifier': 'TOPO10M_109',
+    'ows:BoundingBox': {
+      '$crs': 'urn:ogc:def:crs:EPSG::3857',
+      'ows:LowerCorner': '-2.0037507842788246E7 -3.0240971958386146E7',
+      'ows:UpperCorner': '2.0037507842788246E7 3.024097145838615E7'
+    },
+    Style: {
+      '$isDefault': true,
+      'ows:Title': 'Default Style',
+      'ows:Identifier': 'default'
+    },
+    Format: 'image/png',
+    TileMatrixSetLink: { TileMatrixSet: 'GoogleMapsCompatible' },
+    ResourceURL: {
+      '$format': 'image/png',
+      '$resourceType': 'tile',
+      '$template': 'https://wmts.nlsc.gov.tw/wmts/TOPO10M_109/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}'
+    }
+  },
 
