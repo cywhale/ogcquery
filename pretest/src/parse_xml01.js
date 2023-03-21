@@ -16,6 +16,8 @@ const url = //'https://neo.gsfc.nasa.gov/wms/wms'
 //'https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4'
 // other WMTS
 //'https://wmts.nlsc.gov.tw/wmts' //only 3857, no WGS84
+// other WMS
+// 'https://wms.nlsc.gov.tw/wms' //only 3857, no WGS84 //has diff key $SRS and WMT_MS_Capabilities 
 
 const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
 const pattern = '*' //'*temperature'  //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
@@ -23,14 +25,21 @@ const pattern = '*' //'*temperature'  //'*64*kt*wind*' //for title //'Aquarius_S
 const getWMSbbox = (bboxobj) => {
     let bbox = {}
     let crs = []
+    let crskey = '$CRS'
     if (Array.isArray(bboxobj)) {
+        if (!bboxobj[0].hasOwnProperty(crskey) && bboxobj[0].hasOwnProperty('$SRS')) {
+            crskey = '$SRS'
+        }
         for (let i = 0; i < bboxobj.length; i++) {
-            crs.push(bboxobj[i]['$CRS'])
+            crs.push(bboxobj[i][crskey])
             bbox[crs[i]] = [bboxobj[i]['$minx'], bboxobj[i]['$miny'],
             bboxobj[i]['$maxx'], bboxobj[i]['$maxy']]
         }
     } else {
-        crs.push(bboxobj['$CRS'])
+        if (!bboxobj.hasOwnProperty(crskey) && bboxobj.hasOwnProperty('$SRS')) {
+            crskey = '$SRS'
+        }
+        crs.push(bboxobj[crskey])
         bbox[crs[0]] = [bboxobj['$minx'], bboxobj['$miny'],
         bboxobj['$maxx'], bboxobj['$maxy']]
     }
@@ -67,13 +76,13 @@ const getCapabilities = async (url, service) => {
     console.log("Url: ", capabilitiesUrl)
     const res = await fetch(capabilitiesUrl)
     const xml = await res.text()
-    //console.log("XML: ", xml)
     let jbody = parse(xml, { arrayMode: false })
+    //console.log("XML to json: ", jbody)
     return jbody
 }
 
 let data = await getCapabilities(url, selectedService)
-let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
+let key_capabilities = Object.keys(data)[0] //selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
 let key_prefix = selectedService === 'WMS' ? '' : 'ows:'
 let key_content = selectedService === 'WMS' ? 'Capability' : 'Contents'
 let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
@@ -85,7 +94,7 @@ let layerobj = capa[key_content].Layer //Object.entries(capa.Capability.Layer)
 //let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
 //let key_metaurl = selectedService === 'WMS' ? 'MetadataURL' : `${key_prefix}Metadata`
 //let key_dataurl = selectedService === 'WMS' ? 'DataURL' : //??
-
+//console.log(data)
 console.log("Capabilities: ", capa)
 //console.log("TileMatrixSet: ", capa.Contents.TileMatrixSet)
 //console.log("TileMatrixSet item0: ", capa.Contents.TileMatrixSet[0].TileMatrix)

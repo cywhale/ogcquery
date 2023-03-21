@@ -26,14 +26,21 @@ export default async function ogcqry (fastify, opts, next) {
   const getWMSbbox = (bboxobj) => {
     let bbox = {}
     let crs = []
+    let crskey = '$CRS' //ver0.1.5 for 'https://wms.nlsc.gov.tw/wms' has diff key $SRS
     if (Array.isArray(bboxobj)) {
+        if (!bboxobj[0].hasOwnProperty(crskey) && bboxobj[0].hasOwnProperty('$SRS')) {
+            crskey = '$SRS'
+        }
         for (let i = 0; i < bboxobj.length; i++) {
-            crs.push(bboxobj[i]['$CRS'])
+            crs.push(bboxobj[i][crskey])
             bbox[crs[i]] = [bboxobj[i]['$minx'], bboxobj[i]['$miny'],
             bboxobj[i]['$maxx'], bboxobj[i]['$maxy']]
         }
     } else {
-        crs.push(bboxobj['$CRS'])
+        if (!bboxobj.hasOwnProperty(crskey) && bboxobj.hasOwnProperty('$SRS')) {
+            crskey = '$SRS'
+        }
+        crs.push(bboxobj[crskey])
         bbox[crs[0]] = [bboxobj['$minx'], bboxobj['$miny'],
         bboxobj['$maxx'], bboxobj['$maxy']]
     }
@@ -235,7 +242,9 @@ export default async function ogcqry (fastify, opts, next) {
 
       let data = await getCapabilities(url, selectedService)
 
-      let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
+      //let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
+      //ver0.1.5 for 'https://wms.nlsc.gov.tw/wms'has diff key WMT_MS_Capabilities
+      let key_capabilities = Object.keys(data)[0]
       let key_prefix = selectedService === 'WMS' ? '' : 'ows:'
       let key_content = selectedService === 'WMS' ? 'Capability' : 'Contents'
       let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`

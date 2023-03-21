@@ -40,9 +40,11 @@
   // https://nrt.cmems-du.eu/thredds/wms/global-analysis-forecast-bio-001-028-daily
   // CMEMS WMS: (SLA)
   // https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4
-
 //Other WMTS
   //https://wmts.nlsc.gov.tw/wmts //only 3857, no WGS84
+//Version 0.1.5 for this WMS
+// 'https://wms.nlsc.gov.tw/wms' //has diff key $SRS and WMT_MS_Capabilities 
+
 
 // Capabilities xml link
   // https://neo.gsfc.nasa.gov/wms/wms?service=WMS&request=GetCapabilities
