@@ -101,7 +101,7 @@ export default async function ogcqry (fastify, opts, next) {
   }
 
   const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
-    let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
+    let layx, bbox, re, stylex, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
     let key_prefix = service === 'WMS' ? '' : 'ows:'
     let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
     let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
@@ -138,10 +138,11 @@ export default async function ogcqry (fastify, opts, next) {
     }
 
     let key_bbox = 'BoundingBox'
-    if (service === 'WMS' && !layx[key_bbox]) {
-        bbox = bbox0
-    } else if (service === 'WMS') {
-        bbox = getWMSbbox(layx[key_bbox])
+    if (service === 'WMS') {
+        if (!layx[key_bbox]) {
+            bbox = bbox0
+        } else {
+            bbox = getWMSbbox(layx[key_bbox])
 /*modified after v0.1.4
         if (Array.isArray(layx[key_bbox])) {
             bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
@@ -151,10 +152,65 @@ export default async function ogcqry (fastify, opts, next) {
                     layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
         }
 */
+        }
+        if (layx.Style) {
+            if (Array.isArray(layx.Style)) {
+                for (let i = 0; i < layx.Style.length; i++) {
+                    if (layx.Style[i].Name === 'default') {
+                        stylex = { default: 'default' }
+                        if (layx.Style[i].LegendURL) {
+                            stylex["legend"] = layx.Style[i].LegendURL
+                        }
+                        break
+                    }
+                }
+                if (!stylex) {
+                    stylex = { example: layx.Style[0].Name }
+                    if (layx.Style[0].LegendURL) {
+                        stylex["legend"] = layx.Style[0].LegendURL
+                    }
+                }
+            } else {
+                stylex = { default: layx.Style.Name }
+                if (layx.Style.LegendURL) {
+                    stylex["legend"] = layx.Style.LegendURL
+                }
+            }
+        } //else {
+          //  console.log("No style provided in WMS layer: ", layx)
+        //}
     } else if (service === 'WMTS') {
         bbox = getWMTSbbox(layx)
 /*      bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
                 ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]*/
+        if (layx.Style) {
+            if (Array.isArray(layx.Style)) {
+                for (let i = 0; i < layx.Style.length; i++) {
+                    if (layx.Style[i]['$isDefault']) {
+                        stylex = { default: layx.Style[i]['ows:Identifier'] }
+                        if (layx.Style[i].LegendURL) {
+                            stylex["legend"] = layx.Style[i].LegendURL
+                        }
+                        break
+                    }
+                    if (!stylex) {
+                        stylex = { example: layx.Style[0]['ows:Identifier'] }
+                        if (layx.Style[0].LegendURL) {
+                            stylex["legend"] = layx.Style[0].LegendURL
+                        }
+                    }
+                }
+            } else {
+                if (layx.Style['$isDefault']) {
+                    stylex = { default: layx.Style['ows:Identifier'] }
+                    if (layx.Style.LegendURL) {
+                        stylex["legend"] = layx.Style.LegendURL
+                    }
+                } //else {
+                  //  console.log("Warning: Non-default style in layx: ", layx.Style)
+                //}
+            }
+        }
     }
 
     let itemx = {
@@ -163,16 +219,45 @@ export default async function ogcqry (fastify, opts, next) {
         bbox: bbox.bbox, //bbox //modified after v0.1.4
         crs: bbox.crs,
         dimension: layx.Dimension ?? '',
+        style: stylex ?? {},    //after version 0.1.6 added, 202304
         //crs: layx.CRS,
         //abstract: layx.Abstract,
         //keywords: [...layx.KeywordList.Keyword],
         //attribution: `${layx.Attribution.Title}: ${layx.Attribution.OnlineResource['$xlink:href']}`
     }
     if (service === 'WMTS') {
+        let formatx //may be 'image/png', 'image/jpeg',..
+        let tmplidx = -1 //find tmplate index
+        if (Array.isArray(layx.Format)) {
+            formatx = layx.Format
+        } else {
+            formatx = [layx.Format]
+        }
+
+        let templatex = Array.from({ length: formatx.length })
+        if (Array.isArray(layx.ResourceURL)) {
+          for (let i = 0; i < layx.ResourceURL.length; i++) {
+            if (formatx[i] && layx.ResourceURL[i]['$format'] === formatx[i]) {
+              templatex[i] = layx.ResourceURL[i]['$template']
+            } else {
+              tmplidx = formatx.indexOf(layx.ResourceURL[i]['$format'])
+              if (tmplidx >= 0) {
+                if (templatex[tmplidx]) { console.log("Warning: find repeated foramt/template setting: ", formatx[tmplidx]) }
+                templatex[tmplidx] = layx.ResourceURL[i]['$template']
+              } else {
+                console.log("Warning: cannot find corresponding foramt/template setting: ", layx.ResourceURL[i]['$format'])
+              }
+            }
+            if (!templatex.includes(undefined)) break
+          }
+        } else {
+          templatex = [layx.ResourceURL['$template']]
+        }
+
         itemx = {
             ...itemx,
-            format: layx.Format,
-            template: layx.ResourceURL['$template'],
+            format: formatx, //layx.Format,
+            template: templatex, //layx.ResourceURL['$template'],
             TileMatrixSet: Array.isArray(layx.TileMatrixSetLink) ? layx.TileMatrixSetLink[0].TileMatrixSet : layx.TileMatrixSetLink.TileMatrixSet,
         }
         /*if (isMulti) {

@@ -3,24 +3,26 @@ import { fetch } from 'undici'
 
 const url = //'https://neo.gsfc.nasa.gov/wms/wms'
     //'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
-    'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
-//'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
+    //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
+    //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
+    //'https://ecodata.odb.ntu.edu.tw/geoserver/gwc/service/wmts'
+    // other WMS
+    // layers is digit(0, 1,...) numbered, and multiple CRS
+    //'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WmsServer'
+    //'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer'
+    //'https://nowcoast.noaa.gov/arcgis/services/nowcoast/sat_meteo_imagery_time/MapServer/WMSServer'
+    //'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
+    //'https://nrt.cmems-du.eu/thredds/wms/global-analysis-forecast-bio-001-028-daily'
+    // CMEMS WMS: (SLA)
+    //'https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4'
+    // other WMTS
+    'https://wmts.nlsc.gov.tw/wmts' //only 3857, no WGS84
 // other WMS
-// layers is digit(0, 1,...) numbered, and multiple CRS
-//'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WmsServer'
-//'https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/NHC_Atl_trop_cyclones/MapServer/WMSServer'
-//'https://nowcoast.noaa.gov/arcgis/services/nowcoast/sat_meteo_imagery_time/MapServer/WMSServer'
-//'https://www.ncei.noaa.gov/thredds/wms/ncFC/fc-oisst-daily-avhrr-amsr-dly/OISST_Daily_AVHRR_AMSR_Feature_Collection_best.ncd'
-//'https://nrt.cmems-du.eu/thredds/wms/global-analysis-forecast-bio-001-028-daily'
-// CMEMS WMS: (SLA)
-//'https://nrt.cmems-du.eu/thredds/wms/dataset-duacs-nrt-global-merged-allsat-phy-l4'
-// other WMTS
-//'https://wmts.nlsc.gov.tw/wmts' //only 3857, no WGS84
-// other WMS
-// 'https://wms.nlsc.gov.tw/wms' //only 3857, no WGS84 //has diff key $SRS and WMT_MS_Capabilities 
+//'https://ecodata.odb.ntu.edu.tw/geoserver/ows'
+//'https://wms.nlsc.gov.tw/wms' //only 3857, no WGS84 //has diff key $SRS and WMT_MS_Capabilities 
 
 const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
-const pattern = '*' //'*temperature'  //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
+const pattern = '*'//'*temperature'  //'*mhw*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
 
 const getWMSbbox = (bboxobj) => {
     let bbox = {}
@@ -100,6 +102,13 @@ console.log("Capabilities: ", capa)
 //console.log("TileMatrixSet item0: ", capa.Contents.TileMatrixSet[0].TileMatrix)
 //console.log("TileMatrixSet item1: ", capa.Contents.TileMatrixSet[1].TileMatrix)
 //console.log("Layers: ", layerobj)
+//console.log("Layer-0: ", layerobj.Layer.Layer[0])
+//console.log("Layer-0: ", layerobj.Layer[0].Layer[0]) //https://nowcoast.noaa.gov/arcgis
+//console.log("Layer-0: ", layerobj.Layer[0])
+//console.log("LegendURL.OnlineResource: ", layerobj.Layer[0].Style.LegendURL.OnlineResource)
+//for (let i = 0; i < layerobj[0].Style.length; i++) {
+//    console.log("Layer style", layerobj[0].Style[i])
+//}
 
 if (selectedService === 'WMTS') {
     if (capa.hasOwnProperty('ows:ServiceProvider')) {
@@ -129,10 +138,10 @@ if (!isMultiLay && typeof layers === 'object' && layers.hasOwnProperty('Layer'))
     layers = layers.Layer
     isMultiLay = Array.isArray(layers)
 }
-console.log("MultiLay: ", isMultiLay, typeof layers)
+//console.log("MultiLay: ", isMultiLay, typeof layers)
 
 const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
-    let layx, bbox, re, isLayerNotNum
+    let layx, bbox, re, isLayerNotNum, stylex
     let key_prefix = service === 'WMS' ? '' : 'ows:'
     let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
     let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
@@ -173,25 +182,76 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         }
     }
 
-    //  let key_bbox = 'BoundingBox'
-    if (service === 'WMS' && !layx[key_bbox]) {
-        bbox = bbox0
-    } else if (service === 'WMS') {
-        bbox = getWMSbbox(layx[key_bbox])
-        /*        if (Array.isArray(layx[key_bbox])) {
-                    bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
-                    layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
-                } else {
-                    bbox = [layx[key_bbox]['$minx'], layx[key_bbox]['$miny'],
-                    layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
+    //let key_bbox = 'BoundingBox'
+    //console.log("Debug Single layer: ", layx)
+    if (service === 'WMS') {
+        if (!layx[key_bbox]) {
+            bbox = bbox0
+        } else {
+            bbox = getWMSbbox(layx[key_bbox])
+            /*        if (Array.isArray(layx[key_bbox])) {
+                        bbox = [layx[key_bbox][0]['$minx'], layx[key_bbox][0]['$miny'],
+                        layx[key_bbox][0]['$maxx'], layx[key_bbox][0]['$maxy']]
+                    } else {
+                        bbox = [layx[key_bbox]['$minx'], layx[key_bbox]['$miny'],
+                        layx[key_bbox]['$maxx'], layx[key_bbox]['$maxy']]
+                    }
+            */
+        }
+        if (layx.Style) {
+            if (Array.isArray(layx.Style)) {
+                for (let i = 0; i < layx.Style.length; i++) {
+                    if (layx.Style[i].Name === 'default') {
+                        stylex = { default: 'default' }
+                        if (layx.Style[i].LegendURL) {
+                            stylex["legend"] = layx.Style[i].LegendURL
+                        }
+                        break
+                    }
                 }
-        */
+                if (!stylex) {
+                    stylex = { default: layx.Style[0].Name }
+                    if (layx.Style[0].LegendURL) {
+                        stylex["legend"] = layx.Style[0].LegendURL
+                    }
+                }
+            } else {
+                stylex = { default: layx.Style.Name }
+                if (layx.Style.LegendURL) {
+                    stylex["legend"] = layx.Style.LegendURL
+                }
+            }
+        } else {
+            console.log("No style provided in WMS layer: ", layx)
+        }
     } else if (service === 'WMTS') {
         bbox = getWMTSbbox(layx)
         /*      key_bbox = layx.hasOwnProperty('ows:WGS84BoundingBox') ? 'ows:WGS84BoundingBox' : 'ows:BoundingBox'
                 bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
                 ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]
         */
+        if (layx.Style) {
+            if (Array.isArray(layx.Style)) {
+                for (let i = 0; i < layx.Style.length; i++) {
+                    if (layx.Style[i]['$isDefault']) {
+                        stylex = { default: layx.Style[i]['ows:Identifier'] }
+                        if (layx.Style[i].LegendURL) {
+                            stylex["legend"] = layx.Style[i].LegendURL
+                        }
+                        break
+                    }
+                }
+            } else {
+                if (layx.Style['$isDefault']) {
+                    stylex = { default: layx.Style['ows:Identifier'] }
+                    if (layx.Style.LegendURL) {
+                        stylex["legend"] = layx.Style.LegendURL
+                    }
+                } else {
+                    console.log("Warning: Non-default style in layx: ", layx.Style)
+                }
+            }
+        }
     }
 
     let itemx = {
@@ -200,16 +260,79 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         bbox: bbox.bbox,
         crs: bbox.crs,
         dimension: layx.Dimension ?? '',
+        style: stylex ?? {},
         //crs: layx.CRS,
         //abstract: layx.Abstract,
         //keywords: [...layx.KeywordList.Keyword],
         //attribution: `${layx.Attribution.Title}: ${layx.Attribution.OnlineResource['$xlink:href']}`
     }
     if (service === 'WMTS') {
+        let formatx //may be 'image/png', 'image/jpeg',..
+        //let ftmpidx = -1 //find format index
+        let tmplidx = -1 //find tmplate index
+        if (Array.isArray(layx.Format)) {
+            formatx = layx.Format
+            /*ftmpidx = layx.Format.findIndex((elem, idx) => {
+                if (elem === 'image/png' || elem === 'image/jpeg') {
+                    return idx
+                }
+            })
+            if (ftmpidx === -1) {
+                console.log("Warning: capabilities not include supports for image/png or image/jpeg")
+                formatx = layx.Format[0]
+            } else {
+                formatx = layx.Format[ftmpidx]
+            }
+            console.log("Debug format find idx: ", ftmpidx, formatx)*/
+        } else {
+            formatx = [layx.Format]
+        }
+
+        let templatex = Array.from({ length: formatx.length })
+
+        if (Array.isArray(layx.ResourceURL)) {
+            /*if (ftmpidx >= 0 && layx.ResourceURL[ftmpidx]['$format'] === formatx) {
+                  templatex = layx.ResourceURL[ftmpidx]['$template']
+              } else if (ftmpidx >= 0) {
+                  tmplidx = layx.ResourceURL.findIndex((elem, idx) => {
+                      if (elem['$format'] === formatx) {
+                          return idx
+                      }
+                  })
+                  if (tmplidx === -1) {
+                      console.log("Warning: capabilities not find corresponding template for format: ", formatx)
+                      templatex = layx.ResourceURL[0]['$template']
+                  } else {
+                      templatex = layx.ResourceURL[tmplidx]['$template']
+                  }
+              } else {
+                  templatex = layx.ResourceURL[0]['$template']
+              }
+              console.log("Debug template find idx: ", tmplidx, templatex)*/
+            for (let i = 0; i < layx.ResourceURL.length; i++) {
+                if (formatx[i] && layx.ResourceURL[i]['$format'] === formatx[i]) {
+                    templatex[i] = layx.ResourceURL[i]['$template']
+                    //console.log("Debug match: ", i, templatex[i])
+                } else {
+                    tmplidx = formatx.indexOf(layx.ResourceURL[i]['$format'])
+                    if (tmplidx >= 0) {
+                        if (templatex[tmplidx]) { console.log("Warning: find repeated foramt/template setting: ", formatx[tmplidx]) }
+                        templatex[tmplidx] = layx.ResourceURL[i]['$template']
+                        //console.log("Debug rematch: ", i, tmplidx, templatex[tmplidx])
+                    } else {
+                        console.log("Warning: cannot find corresponding foramt/template setting: ", layx.ResourceURL[i]['$format'])
+                    }
+                }
+                if (!templatex.includes(undefined)) break
+            }
+        } else {
+            templatex = [layx.ResourceURL['$template']]
+        }
+
         itemx = {
             ...itemx,
-            format: layx.Format,
-            template: layx.ResourceURL['$template'],
+            format: formatx, //layx.Format,
+            template: templatex, //layx.ResourceURL['$template'],
             TileMatrixSet: Array.isArray(layx.TileMatrixSetLink) ? layx.TileMatrixSetLink[0].TileMatrixSet : layx.TileMatrixSetLink.TileMatrixSet,
         }
         /*      if (isMulti) {
@@ -221,8 +344,6 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
                     }
                 }*/
     }
-    console.log(layx)
-
     return itemx
 }
 
@@ -354,7 +475,17 @@ if (isMultiLay) {
 
 if (isMultiLay) {
     console.log("Total: ", result.length)
-    console.log(result[0], result[1])
+    if (result.length <= 1) {
+        console.log(result[0])
+    } else {
+        console.log(result[0], result[1])
+    }
+    if (result[0].style) {
+        console.log(result[0].style)
+        if (result[0].style.legend) {
+            console.log(result[0].style.legend)
+        }
+    }
 } else {
     console.log(result[0])
 }
