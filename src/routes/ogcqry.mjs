@@ -100,8 +100,29 @@ export default async function ogcqry (fastify, opts, next) {
     }
   }
 
+  const copyWmtsDimenItems = (dimen) => {
+    const { 'ows:Identifier': name, Value, Default = null, 'ows:UOM': unit = null, ...objx } = dimen
+    return objx
+  }
+
+  const copyWmsDimenItems = (dimen, serviceType) => {
+    const { $name, '#text': Value, $default = null, $units = null, ...objx } = dimen
+    return objx
+  }
+
+  const copyWmtsLegendItems = (legend) => {
+    const { '$xlink:href': link, '$xlink:type': type = null, $format = null, $width = null, $height = null, ...objx } = legend
+    return objx
+  }
+
+  const copyWmsLegendItems = (legend) => {
+    const { Format = null, $width = null, $height = null, OnlineResource: { ...resrcx } = {}, ...objx } = legend
+    return objx
+  }
+
   const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
-    let layx, bbox, re, stylex, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
+    let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
+    let stylex, legendx, tmplegendx
     let key_prefix = service === 'WMS' ? '' : 'ows:'
     let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
     let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
@@ -138,6 +159,7 @@ export default async function ogcqry (fastify, opts, next) {
     }
 
     let key_bbox = 'BoundingBox'
+    let copyLegendFunc = service === 'WMTS' ? copyWmtsLegendItems : copyWmsLegendItems
     if (service === 'WMS') {
         if (!layx[key_bbox]) {
             bbox = bbox0
@@ -159,7 +181,7 @@ export default async function ogcqry (fastify, opts, next) {
                     if (layx.Style[i].Name === 'default') {
                         stylex = { default: 'default' }
                         if (layx.Style[i].LegendURL) {
-                            stylex["legend"] = layx.Style[i].LegendURL
+                            legendx = layx.Style[i].LegendURL
                         }
                         break
                     }
@@ -167,13 +189,40 @@ export default async function ogcqry (fastify, opts, next) {
                 if (!stylex) {
                     stylex = { example: layx.Style[0].Name }
                     if (layx.Style[0].LegendURL) {
-                        stylex["legend"] = layx.Style[0].LegendURL
+                        legendx = layx.Style[0].LegendURL
                     }
                 }
             } else {
                 stylex = { default: layx.Style.Name }
                 if (layx.Style.LegendURL) {
-                    stylex["legend"] = layx.Style.LegendURL
+                    legendx = layx.Style.LegendURL
+                }
+            }
+
+            if (legendx) {
+                if (Array.isArray(legendx)) {
+                    stylex["legend"] = Array.from({ length: legendx.length })
+                    for (let j = 0; j < legendx.length; j++) {
+                        tmplegendx = copyLegendFunc(legendx[j])
+                        stylex["legend"][j] = {
+                            link: legendx[j].OnlineResource["$xlink:href"],
+                            type: legendx[j].OnlineResource["$xlink:type"] ?? '',
+                            format: legendx[j].Format,
+                            width: legendx[j]['$width'],
+                            height: legendx[j]['$height'],
+                            ...tmplegendx
+                        }
+                    }
+                } else {
+                    tmplegendx = copyLegendFunc(legendx)
+                    stylex["legend"] = [{
+                        link: legendx.OnlineResource["$xlink:href"],
+                        type: legendx.OnlineResource["$xlink:type"] ?? '',
+                        format: legendx.Format,
+                        width: legendx['$width'],
+                        height: legendx['$height'],
+                        ...tmplegendx
+                    }]
                 }
             }
         } //else {
@@ -189,14 +238,14 @@ export default async function ogcqry (fastify, opts, next) {
                     if (layx.Style[i]['$isDefault']) {
                         stylex = { default: layx.Style[i]['ows:Identifier'] }
                         if (layx.Style[i].LegendURL) {
-                            stylex["legend"] = layx.Style[i].LegendURL
+                            legendx = layx.Style[i].LegendURL
                         }
                         break
                     }
                     if (!stylex) {
                         stylex = { example: layx.Style[0]['ows:Identifier'] }
                         if (layx.Style[0].LegendURL) {
-                            stylex["legend"] = layx.Style[0].LegendURL
+                            legendx = layx.Style[0].LegendURL
                         }
                     }
                 }
@@ -204,21 +253,74 @@ export default async function ogcqry (fastify, opts, next) {
                 if (layx.Style['$isDefault']) {
                     stylex = { default: layx.Style['ows:Identifier'] }
                     if (layx.Style.LegendURL) {
-                        stylex["legend"] = layx.Style.LegendURL
+                        legendx = layx.Style.LegendURL
                     }
                 } //else {
                   //  console.log("Warning: Non-default style in layx: ", layx.Style)
                 //}
             }
+
+            if (legendx) {
+                if (Array.isArray(legendx)) {
+                    stylex["legend"] = Array.from({ length: legendx.length })
+                    for (let j = 0; j < legendx.length; j++) {
+                        tmplegendx = copyLegendFunc(legendx[j])
+                        stylex["legend"][j] = {
+                            link: legendx[j]["$xlink:href"],
+                            type: legendx[j]["$xlink:type"] ?? '',
+                            format: legendx[j]['$format'],
+                            width: legendx[j]['$width'],
+                            height: legendx[j]['$height'],
+                            ...tmplegendx
+                        }
+                    }
+                } else {
+                    tmplegendx = copyLegendFunc(legendx)
+                    stylex["legend"] = [{
+                        link: legendx["$xlink:href"],
+                        type: legendx["$xlink:type"] ?? '',
+                        format: legendx['$format'],
+                        width: legendx['$width'],
+                        height: legendx['$height'],
+                        ...tmplegendx
+                    }]
+                }
+            }
         }
     }
+
+    let dimenx = {}, tmpdimenx //after ver0.1.7: add dimension support 202304
+    let dimenName = service === 'WMTS' ? 'ows:Identifier' : '$name'
+    let copyDimenFunc = service === 'WMTS' ? copyWmtsDimenItems : copyWmsDimenItems
+    if (layx.Dimension) {
+        if (Array.isArray(layx.Dimension)) {
+            for (let i = 0; i < layx.Dimension.length; i++) {
+                tmpdimenx = copyDimenFunc(layx.Dimension[i])
+                dimenx[layx.Dimension[i][dimenName]] = {
+                    value: service === 'WMTS' ? layx.Dimension[i]['Value'] : layx.Dimension[i]['#text'],
+                    default: service === 'WMTS' ? (layx.Dimension[i]['Default'] ?? '') : (layx.Dimension[i]['$default'] ?? ''),
+                    unit: service === 'WMTS' ? (layx.Dimension[i]['ows:UOM'] ?? '') : (layx.Dimension[i]['$units'] ?? ''),
+                    ...tmpdimenx
+                }
+            }
+        } else {
+            tmpdimenx = copyDimenFunc(layx.Dimension)
+            dimenx[layx.Dimension[dimenName]] = {
+                value: service === 'WMTS' ? layx.Dimension['Value'] : layx.Dimension['#text'],
+                default: service === 'WMTS' ? (layx.Dimension['Default'] ?? '') : (layx.Dimension['$default'] ?? ''),
+                unit: service === 'WMTS' ? (layx.Dimension['ows:UOM'] ?? '') : (layx.Dimension['$units'] ?? ''),
+                ...tmpdimenx
+            }
+        }
+    }
+
 
     let itemx = {
         name: layx[key_layname],
         title: layx[key_title],
         bbox: bbox.bbox, //bbox //modified after v0.1.4
         crs: bbox.crs,
-        dimension: layx.Dimension ?? '',
+        dimension: dimenx,      //layx.Dimension ?? '', //modified after v0.1.7
         style: stylex ?? {},    //after version 0.1.6 added, 202304
         //crs: layx.CRS,
         //abstract: layx.Abstract,
