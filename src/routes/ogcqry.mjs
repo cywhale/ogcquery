@@ -505,14 +505,33 @@ export default async function ogcqry (fastify, opts, next) {
           serviceinfo['ows:ServiceProvider'] = capa['ows:ServiceProvider']
         }
       /*if (capa.hasOwnProperty('ows:OperationsMetadata')) {
-          serviceinfo['ows:OperationsMetadata'] = capa['ows:OperationsMetadata']
+          serviceinfo['OperationsMetadata'] = capa['ows:OperationsMetadata']
         }
         if (capa.hasOwnProperty('ServiceMetadataURL')) {
           serviceinfo['ServiceMetadataURL'] = capa['ServiceMetadataURL']
-        }
-        if (capa.Contents && capa.Contents.hasOwnProperty('TileMatrixSet')) {
-          serviceinfo['TileMatrixSet'] = capa.Contents['TileMatrixSet']
         }*/
+        if (capa.Contents && capa.Contents.hasOwnProperty('TileMatrixSet')) {
+          let tilematrixset = capa.Contents.TileMatrixSet
+          let tileset = {}, tilemat
+          if (tilematrixset) {
+            if (Array.isArray(tilematrixset)) {
+                for (let i = 0; i < tilematrixset.length; i++) {
+                    tilemat = []
+                    for (let j = 0; j < tilematrixset[i].TileMatrix.length; j++) {
+                        tilemat.push(tilematrixset[i].TileMatrix[j]['ows:Identifier'])
+                    }
+                    tileset[tilematrixset[i]['ows:Identifier']] = tilemat
+                }
+            } else {
+                tilemat = []
+                for (let j = 0; j < tilematrixset.TileMatrix.length; j++) {
+                    tilemat.push(tilematrixset.TileMatrix[j]['ows:Identifier'])
+                }
+                tileset[tilematrixset['ows:Identifier']] = tilemat
+            }
+            serviceinfo['TileMatrixSet'] = tileset //capa.Contents['TileMatrixSet']
+          }
+        }
       }
 
       let output = {

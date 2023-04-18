@@ -1,11 +1,11 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { fetch } from 'undici'
 
-const url = 'https://neo.gsfc.nasa.gov/wms/wms'
-//'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
-//'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
-//'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
-//'https://ecodata.odb.ntu.edu.tw/geoserver/gwc/service/wmts'
+const url = //'https://neo.gsfc.nasa.gov/wms/wms'
+    //'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
+    //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
+    //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
+    'https://ecodata.odb.ntu.edu.tw/geoserver/gwc/service/wmts'
 // other WMS
 //'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi'
 // layers is digit(0, 1,...) numbered, and multiple CRS
@@ -22,8 +22,8 @@ const url = 'https://neo.gsfc.nasa.gov/wms/wms'
 //'https://ecodata.odb.ntu.edu.tw/geoserver/ows'
 //'https://wms.nlsc.gov.tw/wms' //only 3857, no WGS84 //has diff key $SRS and WMT_MS_Capabilities 
 
-const selectedService = 'wms'.toUpperCase() //'wmts'.toUpperCase()
-const pattern = '*' //'*temperature'  //'*mhw*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
+const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
+const pattern = '*mhw*' //'*temperature'  //'*mhw*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
 
 const getWMSbbox = (bboxobj) => {
     let bbox = {}
@@ -99,8 +99,8 @@ let layerobj = capa[key_content].Layer //Object.entries(capa.Capability.Layer)
 //let key_dataurl = selectedService === 'WMS' ? 'DataURL' : //??
 //console.log(data)
 console.log("Capabilities: ", capa)
-//console.log("TileMatrixSet: ", capa.Contents.TileMatrixSet)
-//console.log("TileMatrixSet item0: ", capa.Contents.TileMatrixSet[0].TileMatrix)
+if (selectedService === 'WMTS') { console.log("TileMatrixSet: ", capa.Contents.TileMatrixSet) }
+//console.log("TileMatrixSet item0: ", capa.Contents.TileMatrixSet.TileMatrix[0])
 //console.log("TileMatrixSet item1: ", capa.Contents.TileMatrixSet[1].TileMatrix)
 //console.log("Layers: ", layerobj)
 //console.log("Layer-0: ", layerobj.Layer.Layer[0])
@@ -115,17 +115,39 @@ if (selectedService === 'WMTS') {
     if (capa.hasOwnProperty('ows:ServiceProvider')) {
         serviceinfo['ows:ServiceProvider'] = capa['ows:ServiceProvider']
     }
-    if (capa.hasOwnProperty('ows:OperationsMetadata')) {
-        serviceinfo['ows:OperationsMetadata'] = capa['ows:OperationsMetadata']
+    /*if (capa.hasOwnProperty('ows:OperationsMetadata')) {
+        serviceinfo['OperationsMetadata'] = capa['ows:OperationsMetadata']
     }
     if (capa.hasOwnProperty('ServiceMetadataURL')) {
         serviceinfo['ServiceMetadataURL'] = capa['ServiceMetadataURL']
-    }
+    }*/
     if (capa.Contents && capa.Contents.hasOwnProperty('TileMatrixSet')) {
-        serviceinfo['TileMatrixSet'] = capa.Contents['TileMatrixSet']
+        let tilematrixset = capa.Contents.TileMatrixSet
+        let tileset = {}, tilemat
+        if (tilematrixset) {
+            if (Array.isArray(tilematrixset)) {
+                for (let i = 0; i < tilematrixset.length; i++) {
+                    tilemat = []
+                    for (let j = 0; j < tilematrixset[i].TileMatrix.length; j++) {
+                        tilemat.push(tilematrixset[i].TileMatrix[j]['ows:Identifier'])
+                    }
+                    tileset[tilematrixset[i]['ows:Identifier']] = tilemat
+                }
+            } else {
+                tilemat = []
+                for (let j = 0; j < tilematrixset.TileMatrix.length; j++) {
+                    tilemat.push(tilematrixset.TileMatrix[j]['ows:Identifier'])
+                }
+                tileset[tilematrixset['ows:Identifier']] = tilemat
+            }
+            serviceinfo['TileMatrixSet'] = tileset //capa.Contents['TileMatrixSet']
+        }
     }
 }
-console.log("Service Info: ", serviceinfo)
+//console.log("Service Info: ", serviceinfo)
+if (selectedService === 'WMTS') {
+    console.log("Service Info for tilematrixset: ", serviceinfo['TileMatrixSet'])
+}
 
 let layers
 if (selectedService === 'WMS') {
