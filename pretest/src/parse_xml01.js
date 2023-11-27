@@ -1,5 +1,5 @@
 import { parse } from 'arraybuffer-xml-parser'
-import { fetch } from 'undici'
+//import { fetch } from 'undici'
 
 const url = //'https://neo.gsfc.nasa.gov/wms/wms'
     //'https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
@@ -121,8 +121,11 @@ if (selectedService === 'WMTS') {
     if (capa.hasOwnProperty('ServiceMetadataURL')) {
         serviceinfo['ServiceMetadataURL'] = capa['ServiceMetadataURL']
     }*/
+    console.log("Debug TileMatrixSet:", capa.Contents)
     if (capa.Contents && capa.Contents.hasOwnProperty('TileMatrixSet')) {
         let tilematrixset = capa.Contents.TileMatrixSet
+        console.log("Debug TileMatrixSet:", tilematrixset)
+
         let tileset = {}, tilemat
         if (tilematrixset) {
             if (Array.isArray(tilematrixset)) {
@@ -456,11 +459,20 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
             templatex = [layx.ResourceURL['$template']]
         }
 
+        let tilemat = []
+        if (Array.isArray(layx.TileMatrixSetLink)) {
+            for (let i=0;i<layx.TileMatrixSetLink.length;i++) {
+                tilemat.push(layx.TileMatrixSetLink[i].TileMatrixSet)                
+            }
+        } else {
+            tilemat = [layx.TileMatrixSetLink.TileMatrixSet]
+        }
+        console.log("Debug tilemat: ", JSON.stringify(tilemat))
         itemx = {
             ...itemx,
             format: formatx, //layx.Format,
             template: templatex, //layx.ResourceURL['$template'],
-            TileMatrixSet: Array.isArray(layx.TileMatrixSetLink) ? layx.TileMatrixSetLink[0].TileMatrixSet : layx.TileMatrixSetLink.TileMatrixSet,
+            TileMatrixSet: tilemat //Array.isArray(layx.TileMatrixSetLink) ? layx.TileMatrixSetLink[0].TileMatrixSet : layx.TileMatrixSetLink.TileMatrixSet,
         }
         /*      if (isMulti) {
                     if (layx[`${key_prefix}Metadata`]) {
