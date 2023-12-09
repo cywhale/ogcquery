@@ -100,6 +100,21 @@ export default async function ogcqry (fastify, opts, next) {
     }
   }
 
+  const removeKeyPrefix = (obj, prefix) => {
+    return Object.keys(obj).reduce((newObj, key) => {
+        // Check if the key starts with the prefix
+        if (key.startsWith(prefix)) {
+            // Create a new key name by removing the prefix
+            const newKey = key.slice(prefix.length)
+            newObj[newKey] = obj[key]
+        } else {
+            // Copy the key-value pair as is if the key does not start with the prefix
+            newObj[key] = obj[key]
+        }
+        return newObj
+    }, {})
+  }
+
   const copyWmtsDimenItems = (dimen) => {
     const { 'ows:Identifier': name, Value, Default = null, 'ows:UOM': unit = null, ...objx } = dimen
     return objx
@@ -120,28 +135,30 @@ export default async function ogcqry (fastify, opts, next) {
     return objx
   }
 
-  const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '') => {
+  const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '', prefix_wms = '') => {
     let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
     let stylex, legendx, tmplegendx
-    let key_prefix = service === 'WMS' ? '' : 'ows:'
-    let key_title = service === 'WMS' ? 'Title' : `${key_prefix}Identifier`
-    let key_layname = service === 'WMS' ? 'Name' : `${key_prefix}Identifier`
+    let key_prefix = service === 'WMS' ? prefix_wms : 'ows:'
+    let key_layer = service === 'WMS' ? `${key_prefix}Layer` : `Layer`
+    let key_title = service === 'WMS' ? `${key_prefix}Title` : `${key_prefix}Identifier`
+    let key_layname = service === 'WMS' ? `${key_prefix}Name` : `${key_prefix}Identifier`
+    let copyLegendFunc = service === 'WMTS' ? copyWmtsLegendItems : copyWmsLegendItems
     //let key_bbox = service === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox` //modified after v0.1.4
 
-    if (layer[key_layname] === undefined && layer.Layer) { //some layer name have value 0 <- so cannot use !layx[key_layname]
-        layx = layer.Layer
+    if (layer[key_layname] === undefined && layer[key_layer]) { //some layer name have value 0 <- so cannot use !layx[key_layname]
+        layx = layer[key_layer]
     } else {
         layx = layer
     }
 
-    if (layx[key_layname] === undefined) {
+    if (layx[key_layname] === undefined) { //some layer name have value 0 <- so cannot use !layx[key_layname]
         //console.log("Error layer: ", layx)
         return null
     } else {
         if (pattern && pattern.trim() !== '') {
             let patx = pattern.trim()
             let fuzzyFlag = patx.indexOf('*')
-            if (fuzzyFlag < 0 && layx[key_layname].toLowerCase() !== patx.toLowerCase()) {
+            if (fuzzyFlag < 0 && layx[key_layname] !== patx) {
                 return null
             } else if (fuzzyFlag >= 0) {
                 patx = decodeURIComponent(patx).replace(/\*/g, '(.*)')
@@ -158,9 +175,13 @@ export default async function ogcqry (fastify, opts, next) {
         }
     }
 
-    let key_bbox = 'BoundingBox'
-    let copyLegendFunc = service === 'WMTS' ? copyWmtsLegendItems : copyWmsLegendItems
     if (service === 'WMS') {
+        let key_bbox = `${key_prefix}BoundingBox`
+        let key_style = `${key_prefix}Style`
+        let key_styleName = `${key_prefix}Name`
+        let key_styleFormat = `${key_prefix}Format`
+        let key_LegendURL = `${key_prefix}LegendURL`
+        let key_OnlineResource = `${key_prefix}OnlineResource`
         if (!layx[key_bbox]) {
             bbox = bbox0
         } else {
@@ -175,50 +196,49 @@ export default async function ogcqry (fastify, opts, next) {
         }
 */
         }
-        if (layx.Style) {
-            if (Array.isArray(layx.Style)) {
-                for (let i = 0; i < layx.Style.length; i++) {
-                    if (layx.Style[i].Name === 'default') {
+        if (layx[key_style]) {
+            if (Array.isArray(layx[key_style])) {
+                for (let i = 0; i < layx[key_style].length; i++) {
+                    if (layx[key_style][i][key_styleName] === 'default') {
                         stylex = { default: 'default' }
-                        if (layx.Style[i].LegendURL) {
-                            legendx = layx.Style[i].LegendURL
+                        if (layx[key_style][i][key_LegendURL]) {
+                            legendx = layx[key_style][i][key_LegendURL]
                         }
                         break
                     }
                 }
                 if (!stylex) {
-                    stylex = { example: layx.Style[0].Name }
-                    if (layx.Style[0].LegendURL) {
-                        legendx = layx.Style[0].LegendURL
+                    stylex = { example: layx[key_style][0][key_styleName] }
+                    if (layx[key_style][0][key_LegendURL]) {
+                        legendx = layx[key_style][0][key_LegendURL]
                     }
                 }
             } else {
-                stylex = { default: layx.Style.Name }
-                if (layx.Style.LegendURL) {
-                    legendx = layx.Style.LegendURL
+                stylex = { default: layx[key_style][key_styleName] }
+                if (layx[key_style][key_LegendURL]) {
+                    legendx = layx[key_style][key_LegendURL]
                 }
             }
-
             if (legendx) {
                 if (Array.isArray(legendx)) {
                     stylex["legend"] = Array.from({ length: legendx.length })
                     for (let j = 0; j < legendx.length; j++) {
-                        tmplegendx = copyLegendFunc(legendx[j])
+                        tmplegendx = removeKeyPrefix(copyLegendFunc(legendx[j]), prefix_wms)
                         stylex["legend"][j] = {
-                            link: legendx[j].OnlineResource["$xlink:href"],
-                            type: legendx[j].OnlineResource["$xlink:type"] ?? '',
-                            format: legendx[j].Format,
+                            link: legendx[j][key_OnlineResource]["$xlink:href"],
+                            type: legendx[j][key_OnlineResource]["$xlink:type"] ?? '',
+                            format: legendx[j][key_styleFormat],
                             width: legendx[j]['$width'],
                             height: legendx[j]['$height'],
                             ...tmplegendx
                         }
                     }
                 } else {
-                    tmplegendx = copyLegendFunc(legendx)
+                    tmplegendx = removeKeyPrefix(copyLegendFunc(legendx), prefix_wms)
                     stylex["legend"] = [{
-                        link: legendx.OnlineResource["$xlink:href"],
-                        type: legendx.OnlineResource["$xlink:type"] ?? '',
-                        format: legendx.Format,
+                        link: legendx[key_OnlineResource]["$xlink:href"],
+                        type: legendx[key_OnlineResource]["$xlink:type"] ?? '',
+                        format: legendx[key_styleFormat],
                         width: legendx['$width'],
                         height: legendx['$height'],
                         ...tmplegendx
@@ -226,7 +246,7 @@ export default async function ogcqry (fastify, opts, next) {
                 }
             }
         } //else {
-          //  console.log("No style provided in WMS layer: ", layx)
+        //console.log("No style provided in WMS layer: ", layx)
         //}
     } else if (service === 'WMTS') {
         bbox = getWMTSbbox(layx)
@@ -290,30 +310,30 @@ export default async function ogcqry (fastify, opts, next) {
     }
 
     let dimenx = {}, tmpdimenx //after ver0.1.7: add dimension support 202304
+    let key_dimen = service === 'WMS' ? `${key_prefix}Dimension` : `Dimension`   
     let dimenName = service === 'WMTS' ? 'ows:Identifier' : '$name'
     let copyDimenFunc = service === 'WMTS' ? copyWmtsDimenItems : copyWmsDimenItems
-    if (layx.Dimension) {
-        if (Array.isArray(layx.Dimension)) {
-            for (let i = 0; i < layx.Dimension.length; i++) {
-                tmpdimenx = copyDimenFunc(layx.Dimension[i])
-                dimenx[layx.Dimension[i][dimenName]] = {
-                    value: service === 'WMTS' ? layx.Dimension[i]['Value'] : layx.Dimension[i]['#text'],
-                    default: service === 'WMTS' ? (layx.Dimension[i]['Default'] ?? '') : (layx.Dimension[i]['$default'] ?? ''),
-                    unit: service === 'WMTS' ? (layx.Dimension[i]['ows:UOM'] ?? '') : (layx.Dimension[i]['$units'] ?? ''),
+    if (layx[key_dimen]) {
+        if (Array.isArray(layx[key_dimen])) {
+            for (let i = 0; i < layx[key_dimen].length; i++) {
+                tmpdimenx = removeKeyPrefix(copyDimenFunc(layx[key_dimen][i]), service === 'WMS' ? prefix_wms : '')
+                dimenx[layx[key_dimen][i][dimenName]] = {
+                    value: service === 'WMTS' ? layx[key_dimen][i]['Value'] : layx[key_dimen][i]['#text'],
+                    default: service === 'WMTS' ? (layx[key_dimen][i]['Default'] ?? '') : (layx[key_dimen][i]['$default'] ?? ''),
+                    unit: service === 'WMTS' ? (layx[key_dimen][i]['ows:UOM'] ?? '') : (layx[key_dimen][i]['$units'] ?? ''),
                     ...tmpdimenx
                 }
             }
         } else {
-            tmpdimenx = copyDimenFunc(layx.Dimension)
-            dimenx[layx.Dimension[dimenName]] = {
-                value: service === 'WMTS' ? layx.Dimension['Value'] : layx.Dimension['#text'],
-                default: service === 'WMTS' ? (layx.Dimension['Default'] ?? '') : (layx.Dimension['$default'] ?? ''),
-                unit: service === 'WMTS' ? (layx.Dimension['ows:UOM'] ?? '') : (layx.Dimension['$units'] ?? ''),
+            tmpdimenx = removeKeyPrefix(copyDimenFunc(layx[key_dimen]), service === 'WMS' ? prefix_wms : '')
+            dimenx[layx[key_dimen][dimenName]] = {
+                value: service === 'WMTS' ? layx[key_dimen]['Value'] : layx[key_dimen]['#text'],
+                default: service === 'WMTS' ? (layx[key_dimen]['Default'] ?? '') : (layx[key_dimen]['$default'] ?? ''),
+                unit: service === 'WMTS' ? (layx[key_dimen]['ows:UOM'] ?? '') : (layx[key_dimen]['$units'] ?? ''),
                 ...tmpdimenx
             }
         }
     }
-
 
     let itemx = {
         name: layx[key_layname],
@@ -437,17 +457,27 @@ export default async function ogcqry (fastify, opts, next) {
       const url = qryurl.href //discard hash and search
 
       let data = await getCapabilities(url, selectedService)
-
-      //let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
-      //ver0.1.5 for 'https://wms.nlsc.gov.tw/wms'has diff key WMT_MS_Capabilities
       let key_capabilities = Object.keys(data)[0]
-      let key_prefix = selectedService === 'WMS' ? '' : 'ows:'
-      let key_content = selectedService === 'WMS' ? 'Capability' : 'Contents'
-      let key_meta = selectedService === 'WMS' ? 'Service' : `${key_prefix}ServiceIdentification`
-
+      //let key_capabilities = selectedService === 'WMS' ? 'WMS_Capabilities' : 'Capabilities'
+      //v0.1.5 for 'https://wms.nlsc.gov.tw/wms'has diff key WMT_MS_Capabilities
+      //v0.2.1 for 'https://neo.gsfc.nasa.gov/wms/wms?service=WMS&request=GetCapabilities' v1.3.0 has `ns2:` prefix
+      let prefix_test = key_capabilities.indexOf(":")
+      let prefix_wms = prefix_test >= 0 ? key_capabilities.substring(0, prefix_test + 1) : ''
+      if (selectedService === 'WMS' && prefix_wms) {
+          if (Object.keys(data[key_capabilities]).indexOf(`${prefix_wms}Service`) >= 0) {
+              fastify.log.info("Warning: Note that now assume all WMS capabilities has the prefix: " + prefix_wms)
+          } else { //if (key_capabilities.substring(prefix_test + 1) !== 'WMS_Capabilities') {
+              prefix_wms = ""
+              fastify.log.info("Warning: WMS seems has informal keys in XML: " + key_capabilities)
+          }
+      }
+      let key_prefix = selectedService === 'WMS' ? prefix_wms : 'ows:'
+      let key_capa = selectedService === 'WMS' ? `${key_prefix}Capability` : 'Contents'
+      let key_meta = selectedService === 'WMS' ? `${key_prefix}Service` : `${key_prefix}ServiceIdentification`
+      let key_layer = selectedService === 'WMS' ? `${key_prefix}Layer` : `Layer`
       let capa = data[key_capabilities]
       //let services = capa[key_meta]
-      let layerobj = capa[key_content].Layer //Object.entries(capa.Capability.Layer)
+      let layerobj = capa[key_capa][key_layer] //Object.entries(capa.Capability.Layer)
       //let key_title = selectedService === 'WMS' ? 'Title' : `${key_prefix}Identifier`
       //let key_layname = selectedService === 'WMS' ? 'Name' : `${key_prefix}Identifier`
       //let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox` //modified after v0.1.4
@@ -458,22 +488,22 @@ export default async function ogcqry (fastify, opts, next) {
       //console.log("Services: ", services)
       //console.log("Layers: ", layerobj)
       let layers
-      if (selectedService === 'WMS') {
-        layers = layerobj.Layer
+      if (selectedService === 'WMS' && layerobj[key_layer] && layerobj[key_layer][key_layer]) {
+          layers = layerobj[key_layer]
       } else {
-        layers = layerobj
+          layers = layerobj
       }
-
       let isMultiLay = Array.isArray(layers)
-      if (!isMultiLay && typeof layers === 'object' && layers.hasOwnProperty('Layer')) {
-        layers = layers.Layer
-        isMultiLay = Array.isArray(layers) // that's some XML has nested structure: Layer:{,..,Layer:[]}
+      if (!isMultiLay && typeof layers === 'object' && layers.hasOwnProperty(key_layer)) {
+          layers = layers[key_layer]
+          isMultiLay = Array.isArray(layers) // that's some XML has nested structure: Layer:{,..,Layer:[]}
       }
 
       let result = [], layx, layy, itemx
-      let key_bbox = 'BoundingBox'
       let bbox0 //= [] //modified after v0.1.4
+      let key_bbox = `${key_prefix}BoundingBox` //key_bbox = 'BoundingBox'
       let layername = []
+
       if (selectedService === 'WMS' && isMultiLay && layerobj[key_bbox]) { //Note if like aboving nested structure, may have no bbox0
         bbox0 = getWMSbbox(layerobj[key_bbox])
 /*      bbox0 = [layerobj[key_bbox]['$minx'], layerobj[key_bbox]['$miny'],
@@ -483,25 +513,25 @@ export default async function ogcqry (fastify, opts, next) {
       if (isMultiLay) {
         for (let i = 0; i < layers.length; i++) {
           layx = layers[i]
-          if (selectedService === 'WMS' && isMultiLay && layx.Layer && Array.isArray(layx.Layer)) {
-            for (let j = 0; j < layx.Layer.length; j++) {
-                layy = layx.Layer[j]
-                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, pattern)
+          if (selectedService === 'WMS' && isMultiLay && layx[key_layer] && Array.isArray(layx[key_layer])) {
+            for (let j = 0; j < layx[key_layer].length; j++) {
+                layy = layx[key_layer][j]
+                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
                 if (itemx) {
                   result.push(itemx)
                   layername.push(itemx.name)
                 }
             }
           } else {
-            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0, pattern)
+            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
             if (itemx) {
-              result.push(itemx)
-              layername.push(itemx.name)
+                result.push(itemx)
+                layername.push(itemx.name)
             }
           }
         }
       } else {
-        itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0, pattern)
+        itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
         if (itemx) {
           result.push(itemx)
           layername.push(itemx.name)
