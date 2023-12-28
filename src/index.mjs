@@ -17,6 +17,7 @@ const startServer = async () => {
       https: {key, cert, allowHTTP1},
       requestTimeout: 5000,
       logger: true,
+      level: 'debug',
       ajv: {
         customOptions: {
           coerceTypes: 'array'

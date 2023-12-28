@@ -78,11 +78,13 @@ export default async function ogcqry (fastify, opts, next) {
     try {
       const res = await fetch(capabilitiesUrl)
       if (!res.ok) {
-        throw new Error({
+        const errorBody = await res.text()  // Try to read the response body
+        throw new Error(`Request failed with status ${res.status}: ${errorBody}`)
+        /* throw new Error({
           statusCode: 404,
           cause: { res },
           message: 'Fail to fetch URL capabilities'
-        })
+        }) */
         //throw new ResponseError('Fail to fetch URL capabilities', res)
       }
 
@@ -91,12 +93,13 @@ export default async function ogcqry (fastify, opts, next) {
       return jbody
 
     } catch (err) {
-      fastify.log.error(err)
-      throw new Error({
+      fastify.log.error(`Fetch error: ${err.message}`)
+      throw new Error(`Fetch error: ${err.message}`)
+      /* throw new Error({
         statusCode: err.response.status,
         //cause: { err.cause },
         message: err.message
-      })
+      }) */
     }
   }
 
@@ -345,7 +348,7 @@ export default async function ogcqry (fastify, opts, next) {
         //crs: layx.CRS,
         //abstract: layx.Abstract,
         //keywords: [...layx.KeywordList.Keyword],
-        //attribution: `${layx.Attribution.Title}: ${layx.Attribution.OnlineResource['$xlink:href']}`
+        attribution: layx.Attribution ?? {}, //`${layx.Attribution.Title}: ${layx.Attribution.OnlineResource['$xlink:href']}`
     }
     if (service === 'WMTS') {
         let formatx //may be 'image/png', 'image/jpeg',..
@@ -360,12 +363,12 @@ export default async function ogcqry (fastify, opts, next) {
         if (Array.isArray(layx.ResourceURL)) {
           for (let i = 0; i < layx.ResourceURL.length; i++) {
             if (formatx[i] && layx.ResourceURL[i]['$format'] === formatx[i]) {
-              templatex[i] = layx.ResourceURL[i]['$template']
+              templatex[i] = layx.ResourceURL[i]['$template'].replace(/&amp;/g, '&')
             } else {
               tmplidx = formatx.indexOf(layx.ResourceURL[i]['$format'])
               if (tmplidx >= 0) {
                 if (templatex[tmplidx]) { console.log("Warning: find repeated foramt/template setting: ", formatx[tmplidx]) }
-                templatex[tmplidx] = layx.ResourceURL[i]['$template']
+                templatex[tmplidx] = layx.ResourceURL[i]['$template'].replace(/&amp;/g, '&')
               } else {
                 console.log("Warning: cannot find corresponding foramt/template setting: ", layx.ResourceURL[i]['$format'])
               }
@@ -373,7 +376,7 @@ export default async function ogcqry (fastify, opts, next) {
             if (!templatex.includes(undefined)) break
           }
         } else {
-          templatex = [layx.ResourceURL['$template']]
+          templatex = [layx.ResourceURL['$template'].replace(/&amp;/g, '&')]
         }
 
         let tilemat = []
@@ -405,7 +408,7 @@ export default async function ogcqry (fastify, opts, next) {
 
   const parseUrl = (requrl) => {
       let qurlx = decodeURIComponent(requrl).replace(/(^"|^'|"$|'$|\?(.*)$)/g, '')
-      fastify.log.info("Incoming req url: " + qurlx)
+      fastify.log.info("Incoming req url: " + qurlx + " original: " + requrl)
       try {
         const qryurl = new URL(qurlx)
         return qryurl

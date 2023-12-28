@@ -5,7 +5,7 @@ const url = //'https://neo.gsfc.nasa.gov/wms/wms'
     //'//https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
     //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
     //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
-    'https://ecodata.odb.ntu.edu.tw/geoserver/gwc/service/wmts'
+    //'https://ecodata.odb.ntu.edu.tw/geoserver/gwc/service/wmts'
 // other WMS
 //'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi'
 // layers is digit(0, 1,...) numbered, and multiple CRS
@@ -21,7 +21,11 @@ const url = //'https://neo.gsfc.nasa.gov/wms/wms'
 // other WMS
 //'https://ecodata.odb.ntu.edu.tw/geoserver/ows'
 //'https://wms.nlsc.gov.tw/wms' //only 3857, no WGS84 //has diff key $SRS and WMT_MS_Capabilities 
-
+    //Name under nested Layer while other attributes not at this level so get empty attributes:
+    //layer: etopo360:altitude
+    //https://coastwatch.pfeg.noaa.gov/erddap/wms/etopo360/request?&service=WMS&request=GetCapabilities
+    //template problem {}& -> &amp;
+    'https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_PT6H-i_202211'
 
 const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
 const pattern = '*' //'*temperature'  //'*mhw*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
@@ -474,13 +478,13 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
               console.log("Debug template find idx: ", tmplidx, templatex)*/
             for (let i = 0; i < layx.ResourceURL.length; i++) {
                 if (formatx[i] && layx.ResourceURL[i]['$format'] === formatx[i]) {
-                    templatex[i] = layx.ResourceURL[i]['$template']
+                    templatex[i] = layx.ResourceURL[i]['$template'].replace(/&amp;/g, '&')
                     //console.log("Debug match: ", i, templatex[i])
                 } else {
                     tmplidx = formatx.indexOf(layx.ResourceURL[i]['$format'])
                     if (tmplidx >= 0) {
                         if (templatex[tmplidx]) { console.log("Warning: find repeated foramt/template setting: ", formatx[tmplidx]) }
-                        templatex[tmplidx] = layx.ResourceURL[i]['$template']
+                        templatex[tmplidx] = layx.ResourceURL[i]['$template'].replace(/&amp;/g, '&')
                         //console.log("Debug rematch: ", i, tmplidx, templatex[tmplidx])
                     } else {
                         console.log("Warning: cannot find corresponding foramt/template setting: ", layx.ResourceURL[i]['$format'])
@@ -489,7 +493,7 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
                 if (!templatex.includes(undefined)) break
             }
         } else {
-            templatex = [layx.ResourceURL['$template']]
+            templatex = [layx.ResourceURL['$template'].replace(/&amp;/g, '&')]
         }
 
         let tilemat = []
