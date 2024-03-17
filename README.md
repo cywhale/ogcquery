@@ -6,12 +6,22 @@
 
 The OGCquery API fetches XML capabilities from a specified WMS/WMTS URL, offering users the details required to display map layers. This API doesn't support the GetMap function, so users must pull the needed data from the output JSON and add it to the URL to create maps, such as with CesiumJS or Leaflet.
 
+#### Swagger API doc
+
+- [ODB OGCquery API manual/online try-out](https://api.odb.ntu.edu.tw/hub/swagger?node=odb_ogcquery_v1)
+
+#### Introduction of OGCquery API concepts</a>
+
+[![OGCquery_API](https://github.com/cywhale/ODB/blob/master/img/apiverse_function_introduce02_OGC.png)](https://github.com/cywhale/ODB/blob/master/img/apiverse_function_introduce02_OGC.png)
+Demo: Try it by using [Ocean APIverse globe viewer and settings](https://api.odb.ntu.edu.tw/hub/earth/settings)
+
+
 #### Usage
 
-The API request should be made to the host URL (with Try-out API documentation: https://api.odb.ntu.edu.tw/ogcquery/) with the endpoint /capability
+The API request should be made to the host URL with the endpoint /capability
 
 ```bash
-https://YourAPIHost/capability
+https://api.odb.ntu.edu.tw/ogcquery/capability
 ```
 
 Include these parameters as query string:
@@ -22,7 +32,7 @@ Include these parameters as query string:
 For example:
 
 ```bash
-https://YourAPIHost/capability?url=https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi&type=WMTS&layer=*ice*
+https://api.odb.ntu.edu.tw/ogcquery/capability?url=https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi&type=WMTS&layer=*ice*
 ```
 
 The response JSON will have three main objects:
@@ -152,6 +162,12 @@ Note: `TileMatrixSet` object is under the `service` object.
   }
 }
 ```
+
+#### Citation
+* This API is compiled by [Ocean Data Bank](https://www.odb.ntu.edu.tw) (ODB), and can be cited as:
+
+    Ocean Data Bank, National Science and Technology Council, Taiwan. https://doi.org/10.5281/zenodo.7512112. Accessed DAY/MONTH/YEAR from api.odb.ntu.edu.tw/ogcquery. v1.0.
+
 
 #### Version history
 - v0.1.4 (202303): Added information about the bounding box (bbox) and CRS problem.
