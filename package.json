@@ -1,6 +1,6 @@
 {
 	"name": "ogcquery",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"type": "module",
 	"description": "OGC services query",
 	"main": "index.mjs",
@@ -27,6 +27,7 @@
 		"desm": "^1.3.1",
 		"fastify": "^4.26.2",
 		"fastify-plugin": "^4.5.1",
-		"fs": "0.0.1-security"
+		"fs": "0.0.1-security",
+		"undici": "^6.14.1"
 	}
 }

@@ -1,9 +1,12 @@
 import { parse } from 'arraybuffer-xml-parser'
+import { Agent, fetch } from 'undici'
 
 export const autoPrefix = '/ogcquery'
 
 export default async function ogcqry (fastify, opts, next) {
   const supportedOgcServices = ['WMS', 'WMTS']
+  // Whitelist of hostnames for which SSL verification will be disabled
+  const sslVerificationWhitelist = ['data.csrsr.ncu.edu.tw']
 
   const ogcqrySchemaObj = {
     type: 'object',
@@ -72,20 +75,27 @@ export default async function ogcqry (fastify, opts, next) {
     return { bbox: bbox, crs: crs }
   }
 
+  const shouldRejectUnauthorized = (hostname) => {
+    return !sslVerificationWhitelist.includes(hostname)
+  }
+
   const getCapabilities = async (url, service) => {
     const capabilitiesUrl = `${url}?service=${service}&request=GetCapabilities`
-    fastify.log.info("Fetch OGC capability url: " + capabilitiesUrl)
+    const hostname = new URL(capabilitiesUrl).hostname
+    fastify.log.info("Fetch OGC capability url: " + capabilitiesUrl + " and host: " + hostname)
+    // Determine if SSL verification should be disabled for this request
+    const rejectUnauthorized = shouldRejectUnauthorized(hostname)
+    const agent = new Agent({
+      connect: {
+        rejectUnauthorized: rejectUnauthorized
+      }
+    })
+
     try {
-      const res = await fetch(capabilitiesUrl)
+      const res = await fetch(capabilitiesUrl, { dispatcher: agent }) //selectiveHttpsAgent })
       if (!res.ok) {
         const errorBody = await res.text()  // Try to read the response body
         throw new Error(`Request failed with status ${res.status}: ${errorBody}`)
-        /* throw new Error({
-          statusCode: 404,
-          cause: { res },
-          message: 'Fail to fetch URL capabilities'
-        }) */
-        //throw new ResponseError('Fail to fetch URL capabilities', res)
       }
 
       const xml = await res.text()
@@ -95,11 +105,6 @@ export default async function ogcqry (fastify, opts, next) {
     } catch (err) {
       fastify.log.error(`Fetch error: ${err.message}`)
       throw new Error(`Fetch error: ${err.message}`)
-      /* throw new Error({
-        statusCode: err.response.status,
-        //cause: { err.cause },
-        message: err.message
-      }) */
     }
   }
 
