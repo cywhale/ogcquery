@@ -123,11 +123,11 @@ capability:[
 ]}
 ```
 
-#### Style and legend
+#### Style and legend (Breaking change v0.3.0)
 
-The `style` property of a WMS/WMTS layer provides information about the style's name and its associated legend. If a default style is available, its name will be stored in the `default` property. If no default style is available, the `example` property will contain the name of one of the available styles. If there is no default style, the `legend` property will be associated with the example style.
+The `style` property of a WMS/WMTS layer (an array of objects) provides information about the style's `name` and its associated `legend`. If a default style is available, it will be in the first element of this array with a `default` property. If the server doesn't specify a default style, the `default` property will not exist.
 
-Furthermore, the `legend` property contains an array of objects for LegendURL in XML. This includes details about the URL of the legend image, its dimensions (width and height), and its format. Note that the format of the `LegendURL` can differ substantially across WMS and WMTS services. Consequently, any additional `LegendURL` attributes are kept as provided, leaving users to parse its content. If intending to use the `LegendURL` attribute, ensure you first verify the availability of a default or example style. 
+Furthermore, the `legend` property contains an array of objects for LegendURL in XML. This includes details about the URL of the legend image, its dimensions (width and height), and its format. Note that the format of the `LegendURL` can differ substantially across WMS and WMTS services. Consequently, any additional `LegendURL` attributes are kept as provided, leaving users to parse its content. 
 
 Here's an example of the `capability` object:
 
@@ -135,8 +135,8 @@ Here's an example of the `capability` object:
 capability:[
   {
     style: {
-      default: "Default style name",
-      example: "Other style name",  //if no default style, i.e. mutually exclusive with the key 'default'
+      name: "Default style name",
+      default: "default", //may not existed if there is no default style provided
       legend: [ {
           link: '',
           type: '', //more likely to be 'simple',
@@ -174,3 +174,4 @@ Note: `TileMatrixSet` object is under the `service` object.
 - v0.1.6 (202304): Added default style
 - v0.1.7 (202304): Added dimension and legend
 - v0.1.8 (202304): Added TileMatrixSet object
+- v0.3.0 (202409): Breaking change the `style` to an array of objects to allow multiple styles.

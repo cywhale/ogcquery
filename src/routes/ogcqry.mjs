@@ -3,7 +3,7 @@ import { Agent, fetch } from 'undici'
 
 export const autoPrefix = '/ogcquery'
 
-export default async function ogcqry (fastify, opts, next) {
+export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
   // Whitelist of hostnames for which SSL verification will be disabled
   const sslVerificationWhitelist = ['data.csrsr.ncu.edu.tw']
@@ -143,9 +143,74 @@ export default async function ogcqry (fastify, opts, next) {
     return objx
   }
 
+
+  const handleWmsLegend = (legend, config) => {
+    const { prefix_wms, key_OnlineResource, key_styleFormat } = config
+    let tmplegendx, result
+    //if (legendx) {
+        if (Array.isArray(legend)) {
+            result = Array.from({ length: legend.length })
+            for (let j = 0; j < legend.length; j++) {
+                tmplegendx = removeKeyPrefix(copyWmsLegendItems(legend[j]), prefix_wms)
+                result[j] = {
+                    link: legend[j][key_OnlineResource]["$xlink:href"],
+                    type: legend[j][key_OnlineResource]["$xlink:type"] ?? '',
+                    format: legend[j][key_styleFormat],
+                    width: legend[j]['$width'],
+                    height: legend[j]['$height'],
+                    ...tmplegendx
+                }
+            }
+            return result
+        } //else {
+        tmplegendx = removeKeyPrefix(copyWmsLegendItems(legend), prefix_wms)
+        result = [{
+                link: legend[key_OnlineResource]["$xlink:href"],
+                type: legend[key_OnlineResource]["$xlink:type"] ?? '',
+                format: legend[key_styleFormat],
+                width: legend['$width'],
+                height: legend['$height'],
+                ...tmplegendx
+        }]
+    //}
+    return result
+  }
+
+  const handleWmtsLegend = (legend) => {    
+    let tmplegendx, result
+    //if (legendx) {
+        if (Array.isArray(legend)) {
+            result = Array.from({ length: legend.length })
+            for (let j = 0; j < legend.length; j++) {
+                tmplegendx = copyWmtsLegendItems(legend[j])
+                result[j] = {
+                    link: legend[j]["$xlink:href"],
+                    type: legend[j]["$xlink:type"] ?? '',
+                    format: legend[j]['$format'],
+                    width: legend[j]['$width'],
+                    height: legend[j]['$height'],
+                    ...tmplegendx
+                }
+            }
+            return result
+        }
+        tmplegendx = copyWmtsLegendItems(legend)
+        result = [{
+            link: legend["$xlink:href"],
+            type: legend["$xlink:type"] ?? '',
+            format: legend['$format'],
+            width: legend['$width'],
+            height: legend['$height'],
+            ...tmplegendx
+        }]       
+    //}
+    return result
+  }
+
   const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '', prefix_wms = '') => {
     let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
-    let stylex, legendx, tmplegendx
+    let tmpstylex, legendx, tmplegendx
+    let stylex = [] //Note: modified since 2024-09, breaking change from object to array of objects
     let key_prefix = service === 'WMS' ? prefix_wms : 'ows:'
     let key_layer = service === 'WMS' ? `${key_prefix}Layer` : `Layer`
     let key_title = service === 'WMS' ? `${key_prefix}Title` : `${key_prefix}Identifier`
@@ -205,55 +270,39 @@ export default async function ogcqry (fastify, opts, next) {
 */
         }
         if (layx[key_style]) {
-            if (Array.isArray(layx[key_style])) {
-                for (let i = 0; i < layx[key_style].length; i++) {
-                    if (layx[key_style][i][key_styleName] === 'default') {
-                        stylex = { default: 'default' }
-                        if (layx[key_style][i][key_LegendURL]) {
-                            legendx = layx[key_style][i][key_LegendURL]
-                        }
-                        break
-                    }
-                }
-                if (!stylex) {
-                    stylex = { example: layx[key_style][0][key_styleName] }
-                    if (layx[key_style][0][key_LegendURL]) {
-                        legendx = layx[key_style][0][key_LegendURL]
-                    }
-                }
-            } else {
-                stylex = { default: layx[key_style][key_styleName] }
-                if (layx[key_style][key_LegendURL]) {
-                    legendx = layx[key_style][key_LegendURL]
-                }
-            }
-            if (legendx) {
-                if (Array.isArray(legendx)) {
-                    stylex["legend"] = Array.from({ length: legendx.length })
-                    for (let j = 0; j < legendx.length; j++) {
-                        tmplegendx = removeKeyPrefix(copyLegendFunc(legendx[j]), prefix_wms)
-                        stylex["legend"][j] = {
-                            link: legendx[j][key_OnlineResource]["$xlink:href"],
-                            type: legendx[j][key_OnlineResource]["$xlink:type"] ?? '',
-                            format: legendx[j][key_styleFormat],
-                            width: legendx[j]['$width'],
-                            height: legendx[j]['$height'],
-                            ...tmplegendx
-                        }
-                    }
+          if (Array.isArray(layx[key_style])) {
+            for (let i = 0; i < layx[key_style].length; i++) {
+                if (layx[key_style][i][key_LegendURL]) {
+                    legendx = layx[key_style][i][key_LegendURL]
+                    tmplegendx = handleWmsLegend(legendx, { prefix_wms: prefix_wms, key_OnlineResource: key_OnlineResource, key_styleFormat: key_styleFormat })
                 } else {
-                    tmplegendx = removeKeyPrefix(copyLegendFunc(legendx), prefix_wms)
-                    stylex["legend"] = [{
-                        link: legendx[key_OnlineResource]["$xlink:href"],
-                        type: legendx[key_OnlineResource]["$xlink:type"] ?? '',
-                        format: legendx[key_styleFormat],
-                        width: legendx['$width'],
-                        height: legendx['$height'],
-                        ...tmplegendx
-                    }]
+                    tmplegendx = null
+                } 
+                if (layx[key_style][i][key_styleName] === 'default') {
+                    tmpstylex = { name: 'default', default: 'default' }
+                    if (tmplegendx) {
+                        tmpstylex.legend = tmplegendx
+                    }
+                    stylex.unshift(tmpstylex)
+                } else {
+                    tmpstylex = { name: layx[key_style][i][key_styleName] }
+                    if (tmplegendx) {
+                        tmpstylex.legend = tmplegendx
+                    }
+                    stylex.push(tmpstylex)
                 }
             }
-        } //else {
+        } else {
+            tmpstylex = { name: layx[key_style][key_styleName], default: 'default' }
+            if (layx[key_style][key_LegendURL]) {
+                legendx = layx[key_style][key_LegendURL]
+                tmplegendx = handleWmsLegend(legendx, { prefix_wms: prefix_wms, key_OnlineResource: key_OnlineResource, key_styleFormat: key_styleFormat })
+            }
+            if (tmplegendx) {
+                tmpstylex.legend = tmplegendx
+            }
+            stylex.push(tmpstylex)
+        }        } //else {
         //console.log("No style provided in WMS layer: ", layx)
         //}
     } else if (service === 'WMTS') {
@@ -261,59 +310,46 @@ export default async function ogcqry (fastify, opts, next) {
 /*      bbox = [...layx[key_bbox]['ows:LowerCorner'].split(' ').map(Number),
                 ...layx[key_bbox]['ows:UpperCorner'].split(' ').map(Number)]*/
         if (layx.Style) {
-            if (Array.isArray(layx.Style)) {
-                for (let i = 0; i < layx.Style.length; i++) {
-                    if (layx.Style[i]['$isDefault']) {
-                        stylex = { default: layx.Style[i]['ows:Identifier'] }
-                        if (layx.Style[i].LegendURL) {
-                            legendx = layx.Style[i].LegendURL
-                        }
-                        break
-                    }
-                    if (!stylex) {
-                        stylex = { example: layx.Style[0]['ows:Identifier'] }
-                        if (layx.Style[0].LegendURL) {
-                            legendx = layx.Style[0].LegendURL
-                        }
-                    }
-                }
-            } else {
-                if (layx.Style['$isDefault']) {
-                    stylex = { default: layx.Style['ows:Identifier'] }
-                    if (layx.Style.LegendURL) {
-                        legendx = layx.Style.LegendURL
-                    }
-                } //else {
-                  //  console.log("Warning: Non-default style in layx: ", layx.Style)
-                //}
-            }
-
-            if (legendx) {
-                if (Array.isArray(legendx)) {
-                    stylex["legend"] = Array.from({ length: legendx.length })
-                    for (let j = 0; j < legendx.length; j++) {
-                        tmplegendx = copyLegendFunc(legendx[j])
-                        stylex["legend"][j] = {
-                            link: legendx[j]["$xlink:href"],
-                            type: legendx[j]["$xlink:type"] ?? '',
-                            format: legendx[j]['$format'],
-                            width: legendx[j]['$width'],
-                            height: legendx[j]['$height'],
-                            ...tmplegendx
-                        }
-                    }
+          if (Array.isArray(layx.Style)) {
+            for (let i = 0; i < layx.Style.length; i++) {
+                if (layx.Style[i].LegendURL) {
+                    legendx = layx.Style[i].LegendURL
+                    tmplegendx = handleWmtsLegend(legendx)
                 } else {
-                    tmplegendx = copyLegendFunc(legendx)
-                    stylex["legend"] = [{
-                        link: legendx["$xlink:href"],
-                        type: legendx["$xlink:type"] ?? '',
-                        format: legendx['$format'],
-                        width: legendx['$width'],
-                        height: legendx['$height'],
-                        ...tmplegendx
-                    }]
+                    tmplegendx = null
+                } 
+                if (layx.Style[i]['$isDefault']) {
+                    tmpstylex = { name: layx.Style[i]['ows:Identifier'], default: 'default' }
+                    if (tmplegendx) {
+                        tmpstylex.legend = tmplegendx
+                    }
+                    stylex.unshift(tmpstylex)
+                } else {
+                    tmpstylex = { name: layx.Style[i]['ows:Identifier'] }
+                    if (tmplegendx) {
+                        tmpstylex.legend = tmplegendx
+                    }
+                    stylex.push(tmpstylex)
                 }
             }
+          } else {
+            if (layx.Style.LegendURL) {
+                legendx = layx.Style.LegendURL
+                tmplegendx = handleWmtsLegend(legendx)
+            } else {
+                tmplegendx = null
+            }
+            if (layx.Style['$isDefault']) {
+                tmpstylex = { name: layx.Style['ows:Identifier'], default: 'default' }
+            } else {
+                //console.log("Warning: Non-default style in layx: ", layx.Style)
+                tmpstylex = { name: layx.Style['ows:Identifier'] }
+            }
+            if (tmplegendx) {
+                tmpstylex.legend = tmplegendx
+            }
+            stylex.push(tmpstylex)
+          }
         }
     }
 
@@ -349,7 +385,7 @@ export default async function ogcqry (fastify, opts, next) {
         bbox: bbox.bbox, //bbox //modified after v0.1.4
         crs: bbox.crs,
         dimension: dimenx,      //layx.Dimension ?? '', //modified after v0.1.7
-        style: stylex ?? {},    //after version 0.1.6 added, 202304
+        style: stylex,   //202409 modified, changed to array //?? {}, //after version 0.1.6 added {}, 202304
         //crs: layx.CRS,
         //abstract: layx.Abstract,
         //keywords: [...layx.KeywordList.Keyword],
@@ -590,5 +626,5 @@ export default async function ogcqry (fastify, opts, next) {
     }
   })
 
-  next()
+  //next()
 }

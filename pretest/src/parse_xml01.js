@@ -1,7 +1,9 @@
 import { parse } from 'arraybuffer-xml-parser'
 //import { fetch } from 'undici'
 
-const url = //'https://neo.gsfc.nasa.gov/wms/wms'
+const url = //'https://ecodata.odb.ntu.edu.tw/geoserver/woa23/wms'
+    'https://wmts.marine.copernicus.eu/teroWmts' 
+    //'https://neo.gsfc.nasa.gov/wms/wms'
     //'//https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
     //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
     //'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
@@ -25,7 +27,8 @@ const url = //'https://neo.gsfc.nasa.gov/wms/wms'
     //layer: etopo360:altitude
     //https://coastwatch.pfeg.noaa.gov/erddap/wms/etopo360/request?&service=WMS&request=GetCapabilities
     //template problem {}& -> &amp;
-    'https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_PT6H-i_202211'
+    //'https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_PT6H-i_202211'
+
 
 const selectedService = 'wmts'.toUpperCase() //'wmts'.toUpperCase()
 const pattern = '*' //'*temperature'  //'*mhw*' //'*64*kt*wind*' //for title //'Aquarius_Sea_Surface_Salinity_L3_Monthly' //null //'*_M' //'blue*' //'*fire*'
@@ -101,13 +104,13 @@ if (selectedService === 'WMS' && prefix_wms) {
         console.log("Warning: WMS seems has informal keys in XML: ", key_capabilities)
     }
 }
-let key_prefix = selectedService === 'WMS' ? prefix_wms : 'ows:'
-let key_capa = selectedService === 'WMS' ? `${key_prefix}Capability` : 'Contents'
-let key_meta = selectedService === 'WMS' ? `${key_prefix}Service` : `${key_prefix}ServiceIdentification`
-let key_layer = selectedService === 'WMS' ? `${key_prefix}Layer` : `Layer`
-let capa = data[key_capabilities]
-let serviceinfo = capa[key_meta]
-let layerobj = capa[key_content][key_layer] //Object.entries(capa.Capability.Layer)
+      let key_prefix = selectedService === 'WMS' ? prefix_wms : 'ows:'
+      let key_capa = selectedService === 'WMS' ? `${key_prefix}Capability` : 'Contents'
+      let key_meta = selectedService === 'WMS' ? `${key_prefix}Service` : `${key_prefix}ServiceIdentification`
+      let key_layer = selectedService === 'WMS' ? `${key_prefix}Layer` : `Layer`
+      let capa = data[key_capabilities]
+      //let services = capa[key_meta]
+      let layerobj = capa[key_capa][key_layer] //Object.entries(capa.Capability.Layer)
 //let key_title = selectedService === 'WMS' ? 'Title' : `${key_prefix}Identifier`
 //let key_layname = selectedService === 'WMS' ? 'Name' : `${key_prefix}Identifier`
 //let key_bbox = selectedService === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
@@ -127,6 +130,7 @@ if (selectedService === 'WMTS') { console.log("TileMatrixSet: ", capa.Contents.T
 //    console.log("Layer style", layerobj[0].Style[i])
 //}
 
+let serviceinfo = capa[key_meta]
 if (selectedService === 'WMTS') {
     if (capa.hasOwnProperty('ows:ServiceProvider')) {
         serviceinfo['ows:ServiceProvider'] = capa['ows:ServiceProvider']
@@ -216,13 +220,77 @@ const copyWmsLegendItems = (legend) => {
     return objx
 }
 
+const handleWmsLegend = (legend, config) => {
+    const { prefix_wms, key_OnlineResource, key_styleFormat } = config
+    let tmplegendx, result
+    //if (legendx) {
+        if (Array.isArray(legend)) {
+            result = Array.from({ length: legend.length })
+            for (let j = 0; j < legend.length; j++) {
+                tmplegendx = removeKeyPrefix(copyWmsLegendItems(legend[j]), prefix_wms)
+                result[j] = {
+                    link: legend[j][key_OnlineResource]["$xlink:href"],
+                    type: legend[j][key_OnlineResource]["$xlink:type"] ?? '',
+                    format: legend[j][key_styleFormat],
+                    width: legend[j]['$width'],
+                    height: legend[j]['$height'],
+                    ...tmplegendx
+                }
+            }
+            return result
+        } //else {
+        tmplegendx = removeKeyPrefix(copyWmsLegendItems(legend), prefix_wms)
+        result = [{
+                link: legend[key_OnlineResource]["$xlink:href"],
+                type: legend[key_OnlineResource]["$xlink:type"] ?? '',
+                format: legend[key_styleFormat],
+                width: legend['$width'],
+                height: legend['$height'],
+                ...tmplegendx
+        }]
+    //}
+    return result
+}
+
+const handleWmtsLegend = (legend) => {    
+    let tmplegendx, result
+    //if (legendx) {
+        if (Array.isArray(legend)) {
+            result = Array.from({ length: legend.length })
+            for (let j = 0; j < legend.length; j++) {
+                tmplegendx = copyWmtsLegendItems(legend[j])
+                result[j] = {
+                    link: legend[j]["$xlink:href"],
+                    type: legend[j]["$xlink:type"] ?? '',
+                    format: legend[j]['$format'],
+                    width: legend[j]['$width'],
+                    height: legend[j]['$height'],
+                    ...tmplegendx
+                }
+            }
+            return result
+        }
+        tmplegendx = copyWmtsLegendItems(legend)
+        result = [{
+            link: legend["$xlink:href"],
+            type: legend["$xlink:type"] ?? '',
+            format: legend['$format'],
+            width: legend['$width'],
+            height: legend['$height'],
+            ...tmplegendx
+        }]       
+    //}
+    return result
+}
+
 const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '', prefix_wms = '') => {
-    let layx, bbox, re, isLayerNotNum, stylex, legendx, tmplegendx
+    let layx, bbox, re, isLayerNotNum, legendx, tmpstylex, tmplegendx
+    let stylex = [] //Note: modified since 2024-09, breaking change from object to array of objects
     let key_prefix = service === 'WMS' ? prefix_wms : 'ows:'
     let key_layer = service === 'WMS' ? `${key_prefix}Layer` : `Layer`
     let key_title = service === 'WMS' ? `${key_prefix}Title` : `${key_prefix}Identifier`
     let key_layname = service === 'WMS' ? `${key_prefix}Name` : `${key_prefix}Identifier`
-    let copyLegendFunc = service === 'WMTS' ? copyWmtsLegendItems : copyWmsLegendItems
+    //let copyLegendFunc = service === 'WMTS' ? copyWmtsLegendItems : copyWmsLegendItems
     //let key_bbox = service === 'WMS' ? 'BoundingBox' : `${key_prefix}WGS84BoundingBox`
     /*
         if (!isMulti && service === 'WMS') {
@@ -281,54 +349,40 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
                     }
             */
         }
+        //console.log("Debug style: ", layx[key_style])
         if (layx[key_style]) {
             if (Array.isArray(layx[key_style])) {
                 for (let i = 0; i < layx[key_style].length; i++) {
+                    if (layx[key_style][i][key_LegendURL]) {
+                        legendx = layx[key_style][i][key_LegendURL]
+                        tmplegendx = handleWmsLegend(legendx, { prefix_wms: prefix_wms, key_OnlineResource: key_OnlineResource, key_styleFormat: key_styleFormat })
+                    } else {
+                        tmplegendx = null
+                    } 
                     if (layx[key_style][i][key_styleName] === 'default') {
-                        stylex = { default: 'default' }
-                        if (layx[key_style][i][key_LegendURL]) {
-                            legendx = layx[key_style][i][key_LegendURL]
+                        tmpstylex = { name: 'default', default: 'default' }
+                        if (tmplegendx) {
+                            tmpstylex.legend = tmplegendx
                         }
-                        break
-                    }
-                }
-                if (!stylex) {
-                    stylex = { example: layx[key_style][0][key_styleName] }
-                    if (layx[key_style][0][key_LegendURL]) {
-                        legendx = layx[key_style][0][key_LegendURL]
+                        stylex.unshift(tmpstylex)
+                    } else {
+                        tmpstylex = { name: layx[key_style][i][key_styleName] }
+                        if (tmplegendx) {
+                            tmpstylex.legend = tmplegendx
+                        }
+                        stylex.push(tmpstylex)
                     }
                 }
             } else {
-                stylex = { default: layx[key_style][key_styleName] }
+                tmpstylex = { name: layx[key_style][key_styleName], default: 'default' }
                 if (layx[key_style][key_LegendURL]) {
                     legendx = layx[key_style][key_LegendURL]
+                    tmplegendx = handleWmsLegend(legendx, { prefix_wms: prefix_wms, key_OnlineResource: key_OnlineResource, key_styleFormat: key_styleFormat })
                 }
-            }
-            if (legendx) {
-                if (Array.isArray(legendx)) {
-                    stylex["legend"] = Array.from({ length: legendx.length })
-                    for (let j = 0; j < legendx.length; j++) {
-                        tmplegendx = removeKeyPrefix(copyLegendFunc(legendx[j]), prefix_wms)
-                        stylex["legend"][j] = {
-                            link: legendx[j][key_OnlineResource]["$xlink:href"],
-                            type: legendx[j][key_OnlineResource]["$xlink:type"] ?? '',
-                            format: legendx[j][key_styleFormat],
-                            width: legendx[j]['$width'],
-                            height: legendx[j]['$height'],
-                            ...tmplegendx
-                        }
-                    }
-                } else {
-                    tmplegendx = removeKeyPrefix(copyLegendFunc(legendx), prefix_wms)
-                    stylex["legend"] = [{
-                        link: legendx[key_OnlineResource]["$xlink:href"],
-                        type: legendx[key_OnlineResource]["$xlink:type"] ?? '',
-                        format: legendx[key_styleFormat],
-                        width: legendx['$width'],
-                        height: legendx['$height'],
-                        ...tmplegendx
-                    }]
+                if (tmplegendx) {
+                    tmpstylex.legend = tmplegendx
                 }
+                stylex.push(tmpstylex)
             }
         } //else {
         //console.log("No style provided in WMS layer: ", layx)
@@ -342,55 +396,43 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         if (layx.Style) {
             if (Array.isArray(layx.Style)) {
                 for (let i = 0; i < layx.Style.length; i++) {
+                    if (layx.Style[i].LegendURL) {
+                        legendx = layx.Style[i].LegendURL
+                        tmplegendx = handleWmtsLegend(legendx)
+                    } else {
+                        tmplegendx = null
+                    } 
                     if (layx.Style[i]['$isDefault']) {
-                        stylex = { default: layx.Style[i]['ows:Identifier'] }
-                        if (layx.Style[i].LegendURL) {
-                            legendx = layx.Style[i].LegendURL
+                        tmpstylex = { name: layx.Style[i]['ows:Identifier'], default: 'default' }
+                        if (tmplegendx) {
+                            tmpstylex.legend = tmplegendx
                         }
-                        break
-                    }
-                    if (!stylex) {
-                        stylex = { example: layx.Style[0]['ows:Identifier'] }
-                        if (layx.Style[0].LegendURL) {
-                            legendx = layx.Style[0].LegendURL
+                        stylex.unshift(tmpstylex)
+                    } else {
+                        tmpstylex = { name: layx.Style[i]['ows:Identifier'] }
+                        if (tmplegendx) {
+                            tmpstylex.legend = tmplegendx
                         }
+                        stylex.push(tmpstylex)
                     }
                 }
             } else {
+                if (layx.Style.LegendURL) {
+                    legendx = layx.Style.LegendURL
+                    tmplegendx = handleWmtsLegend(legendx)
+                } else {
+                    tmplegendx = null
+                }
                 if (layx.Style['$isDefault']) {
-                    stylex = { default: layx.Style['ows:Identifier'] }
-                    if (layx.Style.LegendURL) {
-                        legendx = layx.Style.LegendURL
-                    }
+                    tmpstylex = { name: layx.Style['ows:Identifier'], default: 'default' }
                 } else {
-                    console.log("Warning: Non-default style in layx: ", layx.Style)
+                    //console.log("Warning: Non-default style in layx: ", layx.Style)
+                    tmpstylex = { name: layx.Style['ows:Identifier'] }
                 }
-            }
-            if (legendx) {
-                if (Array.isArray(legendx)) {
-                    stylex["legend"] = Array.from({ length: legendx.length })
-                    for (let j = 0; j < legendx.length; j++) {
-                        tmplegendx = copyLegendFunc(legendx[j])
-                        stylex["legend"][j] = {
-                            link: legendx[j]["$xlink:href"],
-                            type: legendx[j]["$xlink:type"] ?? '',
-                            format: legendx[j]['$format'],
-                            width: legendx[j]['$width'],
-                            height: legendx[j]['$height'],
-                            ...tmplegendx
-                        }
-                    }
-                } else {
-                    tmplegendx = copyLegendFunc(legendx)
-                    stylex["legend"] = [{
-                        link: legendx["$xlink:href"],
-                        type: legendx["$xlink:type"] ?? '',
-                        format: legendx['$format'],
-                        width: legendx['$width'],
-                        height: legendx['$height'],
-                        ...tmplegendx
-                    }]
+                if (tmplegendx) {
+                    tmpstylex.legend = tmplegendx
                 }
+                stylex.push(tmpstylex)
             }
         }
     }
@@ -427,7 +469,7 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         bbox: bbox.bbox,
         crs: bbox.crs,
         dimension: dimenx, //layx.Dimension ?? '',
-        style: stylex ?? {},
+        style: stylex,     //202409 modified, changed to array //?? {}, //after version 0.1.6 added {}, 202304
         //crs: layx.CRS,
         //abstract: layx.Abstract,
         //keywords: [...layx.KeywordList.Keyword],
@@ -504,7 +546,7 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
         } else {
             tilemat = [layx.TileMatrixSetLink.TileMatrixSet]
         }
-        console.log("Debug tilemat: ", JSON.stringify(tilemat))
+        //console.log("Debug tilemat: ", JSON.stringify(tilemat))
         itemx = {
             ...itemx,
             format: formatx, //layx.Format,
@@ -660,9 +702,16 @@ if (isMultiLay) {
     console.log(result[0])
 }
 if (result[0].style) {
-    console.log(result[0].style)
-    if (result[0].style.legend) {
-        console.log(result[0].style.legend)
+    console.log(result[0].style[0])
+    if (result[0].style[0].legend) {
+        console.log(result[0].style[0].legend)
     }
+    console.log("Style length:", result[0].style.length)
+    if (result[0].style.length > 1) {
+        for (let i = 1; i < result[0].style.length; i++) {
+            console.log(result[0].style[i])
+        }
+    }
+          
 }
 console.log(serviceinfo)
