@@ -2,7 +2,8 @@ import { parse } from 'arraybuffer-xml-parser'
 //import { fetch } from 'undici'
 
 const url = //'https://ecodata.odb.ntu.edu.tw/geoserver/woa23/wms'
-    'https://wmts.marine.copernicus.eu/teroWmts' 
+    //'https://wmts.marine.copernicus.eu/teroWmts'
+    'https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_PT6H-i_202406'
     //'https://neo.gsfc.nasa.gov/wms/wms'
     //'//https://ecodata.odb.ntu.edu.tw/geoserver/marineheatwave/wms'
     //'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
@@ -534,7 +535,7 @@ const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pat
                 }
                 if (!templatex.includes(undefined)) break
             }
-        } else {
+        } else if ('ResourceURL' in layx) {
             templatex = [layx.ResourceURL['$template'].replace(/&amp;/g, '&')]
         }
 

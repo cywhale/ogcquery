@@ -416,7 +416,7 @@ export default async function ogcqry (fastify, opts) {
             }
             if (!templatex.includes(undefined)) break
           }
-        } else {
+        } else if ('ResourceURL' in layx) {
           templatex = [layx.ResourceURL['$template'].replace(/&amp;/g, '&')]
         }
 
