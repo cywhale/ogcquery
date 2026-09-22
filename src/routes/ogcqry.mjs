@@ -1,9 +1,9 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
-import { Worker } from 'node:worker_threads'
 import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
 import { buildLayerMatcher, layerMatches } from '../utils/layerMatcher.mjs'
 import { scanXmlLimits } from '../utils/xmlGuard.mjs'
+import { parseXmlBounded } from '../utils/boundedXmlParse.mjs'
 
 export const autoPrefix = '/ogcquery'
 
@@ -15,7 +15,6 @@ const GENERIC_UPSTREAM_ERROR = 'could not retrieve OGC capabilities from the req
 // multi-GB / decompression-bomb upstream ties up a worker or exhausts memory.
 const PER_HOP_TIMEOUT_MS = 20000
 const OVERALL_TIMEOUT_MS = 30000
-const PARSE_TIMEOUT_MS = 5000
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 // Byte cap alone does not bound XML parse cost: 8MB of tiny elements parses in ~1.5s and
 // deep nesting overflows the stack. Legit capabilities (NASA GIBS) are ~5.3MB / 90k tags /
@@ -164,32 +163,6 @@ export default async function ogcqry (fastify, opts) {
   // Discard a body we are not going to read (redirect / error hops) without buffering it.
   const discardBody = (res) => { res.body?.cancel?.().catch(() => {}) }
 
-  // Parse in a worker with a hard wall-clock budget. arraybuffer-xml-parser is super-linear on
-  // crafted input and parse() is synchronous, so this is what actually bounds parse cost and keeps
-  // a pathological document from blocking the event loop; the pre-scan above is a cheap first pass.
-  const parseXmlBounded = (xml) => new Promise((resolve, reject) => {
-    let worker
-    try {
-      worker = new Worker(new URL('../utils/parseWorker.mjs', import.meta.url), { workerData: { xml } })
-    } catch (err) {
-      fastify.log.error(`parse worker spawn failed: ${err.message}`)
-      return reject(upstreamFailure('parse-worker-spawn'))
-    }
-    const timer = setTimeout(() => {
-      worker.terminate()
-      reject(upstreamFailure('parse-timeout'))
-    }, PARSE_TIMEOUT_MS)
-    worker.once('message', (msg) => {
-      clearTimeout(timer); worker.terminate()
-      if (msg && msg.ok) resolve(msg.data)
-      else reject(upstreamFailure(`parse-error:${msg && msg.error}`))
-    })
-    worker.once('error', (err) => {
-      clearTimeout(timer); worker.terminate()
-      reject(upstreamFailure(`parse-worker-error:${err.message}`))
-    })
-  })
-
   const getCapabilities = async (url, service) => {
     let target, pinAddr, pinFamily
     try {
@@ -251,7 +224,11 @@ export default async function ogcqry (fastify, opts) {
 
         const xml = await readCappedText(res)
         assertParseableXml(xml)
-        return await parseXmlBounded(xml)
+        try {
+          return await parseXmlBounded(xml)
+        } catch (err) {
+          throw upstreamFailure(err.reason || 'parse-failed')
+        }
 
       } catch (err) {
         if (err.statusCode) throw err

@@ -82,3 +82,11 @@ test('a single element with a huge attribute list is rejected by tag-length (rou
 test('a normal tag with a few attributes is fine', () => {
   assert.equal(scanXmlLimits('<Layer queryable="1" opaque="0"><Name>x</Name></Layer>'), null)
 })
+
+test('a > inside an attribute value does not hide a huge attribute list (round-6 #2)', () => {
+  let attrs = ' x=">"'
+  for (let i = 0; i < 450000; i++) attrs += ` a${i}="123456"`
+  assert.equal(scanXmlLimits(`<a${attrs}/>`), 'xml-tag-too-long')
+  // a normal quoted > is fine
+  assert.equal(scanXmlLimits('<a title="a > b"><b>x</b></a>'), null)
+})

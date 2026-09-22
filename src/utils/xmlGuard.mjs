@@ -26,6 +26,20 @@ const isWsRun = (s, from, to) => {
   return true
 }
 
+// Find the '>' that closes a tag, ignoring any '>' inside a single- or double-quoted attribute
+// value. `xml.indexOf('>')` alone let `<a x=">" ...many attrs.../>` look like it ended at the
+// quoted '>', so the per-tag byte cap missed a huge attribute list.
+function findTagEnd (xml, from, n) {
+  let quote = 0 // 0 = none, or the char code of the open quote
+  for (let k = from; k < n; k++) {
+    const cc = xml.charCodeAt(k)
+    if (quote) { if (cc === quote) quote = 0; continue }
+    if (cc === 34 || cc === 39) { quote = cc; continue } // " or '
+    if (cc === 62) return k // '>'
+  }
+  return -1
+}
+
 /** @returns {null} if within limits, or a short reason string if it exceeds them. */
 export function scanXmlLimits (xml, opts = {}) {
   const maxElements = opts.maxElements ?? MAX_XML_ELEMENTS
@@ -61,7 +75,7 @@ export function scanXmlLimits (xml, opts = {}) {
       if (++special > maxSpecial) return 'xml-too-many-special'
       const e = xml.indexOf('?>', lt + 2); i = e === -1 ? n : e + 2; continue
     }
-    const end = xml.indexOf('>', lt + 1)
+    const end = findTagEnd(xml, lt + 1, n)
     if (end === -1) break
     if (end - lt > maxTagBytes) return 'xml-tag-too-long' // e.g. an element with a huge attribute list
     if (c === '/') { depth--; i = end + 1; continue } // closing tag
