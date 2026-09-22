@@ -2,6 +2,7 @@ import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
 import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
 import { buildLayerMatcher, layerMatches } from '../utils/layerMatcher.mjs'
+import { scanXmlLimits } from '../utils/xmlGuard.mjs'
 
 export const autoPrefix = '/ogcquery'
 
@@ -17,8 +18,6 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 // Byte cap alone does not bound XML parse cost: 8MB of tiny elements parses in ~1.5s and
 // deep nesting overflows the stack. Legit capabilities (NASA GIBS) are ~5.3MB / 90k tags /
 // depth 9 / 217ms, so these limits leave wide headroom while rejecting the pathological cases.
-const MAX_XML_ELEMENTS = 200000
-const MAX_XML_DEPTH = 50
 
 export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
@@ -130,19 +129,8 @@ export default async function ogcqry (fastify, opts) {
   // Cheap linear pre-scan: reject before parsing if the document has too many elements or
   // nests too deep. Breaks early once a limit is exceeded, so a hostile doc is not fully scanned.
   const assertParseableXml = (xml) => {
-    const re = /<(\/)?([a-zA-Z!?/])[^>]*?(\/)?>/g
-    let depth = 0, elements = 0, m
-    while ((m = re.exec(xml)) !== null) {
-      const lead = m[2]
-      if (lead === '!' || lead === '?') continue // comment / declaration / CDATA
-      if (m[1] === '/') { depth--; continue }     // closing tag
-      elements++
-      if (elements > MAX_XML_ELEMENTS) throw upstreamFailure('xml-too-many-elements')
-      if (m[3] !== '/') {                          // not self-closing
-        depth++
-        if (depth > MAX_XML_DEPTH) throw upstreamFailure('xml-too-deep')
-      }
-    }
+    const reason = scanXmlLimits(xml)
+    if (reason) throw upstreamFailure(reason)
   }
 
   // Stream the body and abort as soon as it exceeds the cap, instead of buffering it all via

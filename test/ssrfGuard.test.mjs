@@ -141,6 +141,7 @@ test('blocks reserved / documentation ranges (review #5)', async () => {
     'http://192.88.99.1/',   // 6to4 relay anycast (deprecated)
     'http://[2001:2::1]/',  // BMWG benchmarking
     'http://[2001:20::1]/', // ORCHIDv2
+    'http://[3fff::1]/',     // IPv6 documentation (IANA 2024)
   ]) {
     await assert.rejects(
       () => assertSafeUrl(u),
