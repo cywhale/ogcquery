@@ -10,9 +10,11 @@
 //
 // Two rules follow from that:
 //   1. Never fetch a target that resolves to an internal address.
-//   2. Never let the caller tell *why* a fetch failed — see genericFetchFailure() in the
-//      route. A distinguishable error is an internal-host enumeration oracle even when the
-//      fetch itself is blocked.
+//   2. Keep the failure reason out of the response: status, body and error headers are
+//      identical for every failure, so the caller cannot read *why* it failed. Response
+//      *timing* still differs (a blocked internal target fails fast, a reachable public host
+//      is slower) — an accepted residual, since internal addresses are refused before any
+//      fetch, so timing only reveals public-host reachability.
 
 import net from 'node:net'
 import dns from 'node:dns/promises'
@@ -73,7 +75,11 @@ const DENY_V4 = [
   ['172.16.0.0', 12],  // private
   ['192.0.0.0', 24],   // IETF protocol assignments
   ['192.168.0.0', 16], // private
+  ['192.0.2.0', 24],   // TEST-NET-1 (documentation)
+  ['192.88.99.0', 24], // 6to4 relay anycast (deprecated)
   ['198.18.0.0', 15],  // benchmarking
+  ['198.51.100.0', 24],// TEST-NET-2 (documentation)
+  ['203.0.113.0', 24], // TEST-NET-3 (documentation)
   ['224.0.0.0', 4],    // multicast
   ['240.0.0.0', 4],    // reserved, incl. 255.255.255.255
 ]
@@ -136,8 +142,15 @@ const isDeniedV6 = (ip) => {
 
   if ((g[0] & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
   if ((g[0] & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if ((g[0] & 0xffc0) === 0xfec0) return true // fec0::/10 deprecated site-local
   if ((g[0] & 0xff00) === 0xff00) return true // ff00::/8 multicast
   if (g[0] === 0x0064 && g[1] === 0xff9b) return true // 64:ff9b::/96 NAT64
+  if (g[0] === 0x0100 && g[1] === 0x0000) return true // 100::/64 discard-only
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true // 2001:db8::/32 documentation
+  if (g[0] === 0x3fff && (g[1] & 0xf000) === 0x0000) return true // 3fff::/20 documentation (IANA 2024)
+  if (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0010) return true // 2001:10::/28 ORCHID (deprecated)
+  if (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0020) return true // 2001:20::/28 ORCHIDv2
+  if (g[0] === 0x2001 && g[1] === 0x0002 && g[2] === 0x0000) return true // 2001:2::/48 BMWG benchmarking
   return false
 }
 
@@ -155,9 +168,9 @@ const DENIED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa']
  * "one A record is public, the other is 10.x" variant of the bypass. Returns the URL with a
  * normalized hostname so the caller fetches exactly what was checked.
  *
- * Note (honest limitation): this resolves and then hands the URL to `fetch`, which resolves
- * again independently, so a DNS-rebinding window remains. Pinning to the validated address
- * is a follow-up, not part of this fix.
+ * The returned address is pinned at fetch time via pinnedLookup(), so the socket connects to
+ * the address validated here rather than a value re-resolved by `fetch`, closing the
+ * resolve-then-fetch DNS-rebinding window for the hop being fetched.
  *
  * @param {URL|string} input
  * @returns {Promise<{url: URL, address: string, family: number}>} validated URL + pinned address

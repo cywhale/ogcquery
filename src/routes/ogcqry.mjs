@@ -1,11 +1,23 @@
-import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
 import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
-import { buildLayerMatcher } from '../utils/layerMatcher.mjs'
+import { buildLayerMatcher, layerMatches } from '../utils/layerMatcher.mjs'
+import { scanXmlLimits } from '../utils/xmlGuard.mjs'
+import { parseXmlBounded } from '../utils/boundedXmlParse.mjs'
 
 export const autoPrefix = '/ogcquery'
 
 const GENERIC_UPSTREAM_ERROR = 'could not retrieve OGC capabilities from the requested url'
+
+// Bound the work a single (caller-chosen, possibly hostile) upstream can impose: an overall
+// fetch deadline and a cap on decoded response bytes. Fastify's requestTimeout only covers
+// receiving the *incoming* request, not this outbound fetch, so without these a slow-loris or
+// multi-GB / decompression-bomb upstream ties up a worker or exhausts memory.
+const PER_HOP_TIMEOUT_MS = 20000
+const OVERALL_TIMEOUT_MS = 30000
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+// Byte cap alone does not bound XML parse cost: 8MB of tiny elements parses in ~1.5s and
+// deep nesting overflows the stack. Legit capabilities (NASA GIBS) are ~5.3MB / 90k tags /
+// depth 9 / 217ms, so these limits leave wide headroom while rejecting the pathological cases.
 
 export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
@@ -24,10 +36,12 @@ export default async function ogcqry (fastify, opts) {
     return reply.code(502).send({ Error: GENERIC_UPSTREAM_ERROR })
   })
 
-  // Everything past URL validation fails the same way on purpose: a caller must not be able
-  // to tell a non-existent host from a live one from a blocked internal one. Distinguishable
-  // errors turn this endpoint into an internal-host enumeration oracle, which is exactly how
-  // it was used against *.ntu.internal on 2026-09-21.
+  // Everything past URL validation fails the same way on purpose: status, body and error
+  // headers are identical whether the host is non-existent, live-but-not-OGC, or a blocked
+  // internal address, so the response cannot be used as an internal-host enumeration oracle
+  // (as it was against *.ntu.internal on 2026-09-21). Response *timing* still differs and is an
+  // accepted residual: internal addresses are refused before any fetch, so timing only reveals
+  // public-host reachability.
   const upstreamFailure = (reason) => {
     const err = new Error(GENERIC_UPSTREAM_ERROR)
     err.statusCode = 502
@@ -114,6 +128,40 @@ export default async function ogcqry (fastify, opts) {
     return upstreamFailure(`blocked-${what}:${reason}`)
   }
 
+  // Cheap linear pre-scan: reject before parsing if the document has too many elements or
+  // nests too deep. Breaks early once a limit is exceeded, so a hostile doc is not fully scanned.
+  const assertParseableXml = (xml) => {
+    const reason = scanXmlLimits(xml)
+    if (reason) throw upstreamFailure(reason)
+  }
+
+  // Stream the body and abort as soon as it exceeds the cap, instead of buffering it all via
+  // res.text(). Returns decoded UTF-8. Throws upstreamFailure on overflow.
+  const readCappedText = async (res) => {
+    if (!res.body) return await res.text()
+    const reader = res.body.getReader()
+    const chunks = []
+    let total = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > MAX_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => {})
+          throw upstreamFailure('body-too-large')
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock?.()
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+
+  // Discard a body we are not going to read (redirect / error hops) without buffering it.
+  const discardBody = (res) => { res.body?.cancel?.().catch(() => {}) }
+
   const getCapabilities = async (url, service) => {
     let target, pinAddr, pinFamily
     try {
@@ -124,6 +172,9 @@ export default async function ogcqry (fastify, opts) {
     }
 
     let current = `${target.href}?service=${service}&request=GetCapabilities`
+    // One deadline for the whole redirect chain, plus a shorter per-hop timeout, so a chain
+    // of slow-but-under-per-hop redirects cannot add up to minutes (5 hops * 20s otherwise).
+    const overall = AbortSignal.timeout(OVERALL_TIMEOUT_MS)
 
     for (let hop = 0; ; hop++) {
       fastify.log.info("Fetch OGC capability url: " + current + " and host: " + target.hostname)
@@ -141,14 +192,15 @@ export default async function ogcqry (fastify, opts) {
         // 'manual' so every hop goes back through assertSafeUrl. Under the default 'follow'
         // a public URL that 302s to 127.0.0.1 walked straight past the guard, which only
         // ever saw the first URL.
-        res = await fetch(current, { dispatcher: agent, redirect: 'manual' })
+        res = await fetch(current, { dispatcher: agent, redirect: 'manual',
+          signal: AbortSignal.any([overall, AbortSignal.timeout(PER_HOP_TIMEOUT_MS)]) })
       } catch (err) {
         throw upstreamFailure(`fetch-error:${err.message}`)
       }
 
       const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
       if (location) {
-        await res.text().catch(() => '')
+        discardBody(res)
         if (hop >= MAX_REDIRECTS) {
           throw upstreamFailure('too-many-redirects')
         }
@@ -164,14 +216,18 @@ export default async function ogcqry (fastify, opts) {
 
       try {
         if (!res.ok) {
-          // Drain without reading into the error: this body used to be sent to the caller.
-          await res.text().catch(() => '')
+          // Discard without reading into the error: this body used to be sent to the caller.
+          discardBody(res)
           throw upstreamFailure(`upstream-status:${res.status}`)
         }
 
-        const xml = await res.text()
-        let jbody = parse(xml, { arrayMode: false })
-        return jbody
+        const xml = await readCappedText(res)
+        assertParseableXml(xml)
+        try {
+          return await parseXmlBounded(xml)
+        } catch (err) {
+          throw upstreamFailure(err.reason || 'parse-failed')
+        }
 
       } catch (err) {
         if (err.statusCode) throw err
@@ -300,19 +356,15 @@ export default async function ogcqry (fastify, opts) {
         //console.log("Error layer: ", layx)
         return null
     } else {
-        if (matcher.mode === 'exact') {
-            if (layx[key_layname] !== matcher.value) return null
-        } else if (matcher.mode === 'nomatch') {
+        if (matcher.mode === 'nomatch') {
             return null
-        } else if (matcher.mode === 'regex') {
+        } else if (matcher.mode === 'exact') {
+            if (!layerMatches(matcher, layx[key_layname])) return null
+        } else if (matcher.mode === 'glob') {
+            // A numbered layer name is matched against its title instead (historical behaviour).
             isLayerNotNum = isNaN(parseInt(layx[key_layname]))
-            if (!isLayerNotNum) {
-                if (!matcher.re.test(layx[key_title])) {
-                    return null
-                }
-            } else if (!matcher.re.test(layx[key_layname])) {
-                return null
-            }
+            const subject = !isLayerNotNum ? layx[key_title] : layx[key_layname]
+            if (!layerMatches(matcher, subject)) return null
         }
     }
 

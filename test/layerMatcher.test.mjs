@@ -1,31 +1,25 @@
 // test/layerMatcher.test.mjs — `node --test`, no dev dependency.
 //
-// The `layer` query is user-controlled and was interpolated into `new RegExp` with only `*`
-// translated, leaving `+ { } ( ) |` live. `layer=(a+)+` became `^(a+)+$`, a catastrophic-
-// backtracking regex that could pin the single Node thread for tens of seconds on one request.
+// `layer` is a user-controlled glob where only `*` is a wildcard. It was interpolated into
+// `new RegExp` (only `*` translated), so `layer=(a+)+` became `^(a+)+$`; #3 escaped the other
+// metacharacters but still compiled `*` to `.*`, and an external review showed a wildcard CHAIN
+// (`*a*a*...*b`) still backtracks catastrophically. The matcher is now a linear two-pointer glob
+// with no regex at all.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildLayerMatcher, MAX_LAYER_PATTERN } from '../src/utils/layerMatcher.mjs'
-
-const runsFast = (re, subject, budgetMs = 50) => {
-  const t0 = process.hrtime.bigint()
-  re.test(subject)
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6
-  assert.ok(ms < budgetMs, `re.test took ${ms.toFixed(1)}ms, over ${budgetMs}ms budget`)
-}
+import { buildLayerMatcher, layerMatches, MAX_LAYER_PATTERN, MAX_LAYER_SUBJECT } from '../src/utils/layerMatcher.mjs'
 
 test('wildcard semantics are preserved', () => {
   const m = buildLayerMatcher('*temperature')
-  assert.equal(m.mode, 'regex')
-  assert.ok(m.re.test('Sea_temperature'))
-  assert.ok(m.re.test('temperature'))
-  assert.ok(!m.re.test('temperature_anomaly'))
+  assert.equal(m.mode, 'glob')
+  assert.ok(layerMatches(m, 'Sea_temperature'))
+  assert.ok(layerMatches(m, 'temperature'))
+  assert.ok(!layerMatches(m, 'temperature_anomaly'))
 
-  const m2 = buildLayerMatcher('*temp*')
-  assert.ok(m2.re.test('x_temp_y'))
+  assert.ok(layerMatches(buildLayerMatcher('*temp*'), 'x_temp_y'))
 
-  const m3 = buildLayerMatcher('SST') // case-insensitive
+  const m3 = buildLayerMatcher('SST')
   assert.equal(m3.mode, 'exact')
   assert.equal(m3.value, 'SST')
 })
@@ -34,34 +28,62 @@ test('empty / whitespace pattern means no filter', () => {
   assert.equal(buildLayerMatcher('').mode, 'none')
   assert.equal(buildLayerMatcher('   ').mode, 'none')
   assert.equal(buildLayerMatcher(undefined).mode, 'none')
+  assert.ok(layerMatches(buildLayerMatcher(''), 'anything'))
 })
 
 test('regex metacharacters in a wildcard pattern are treated literally', () => {
-  // `(a+)+` was the catastrophic case. With a `*` present it takes the regex path; the
-  // metacharacters must be escaped so it can only ever match the literal string.
   const m = buildLayerMatcher('(a+)+*')
-  assert.equal(m.mode, 'regex')
-  assert.equal(m.re.source, '^\\(a\\+\\)\\+.*$')
-  assert.ok(m.re.test('(a+)+_layer'))
-  assert.ok(!m.re.test('aaaaaaaa'))
+  assert.equal(m.mode, 'glob')
+  assert.ok(layerMatches(m, '(a+)+_layer'))   // literal prefix then anything
+  assert.ok(!layerMatches(m, 'aaaaaaaa'))     // the `+` is not a quantifier
 })
 
-test('a catastrophic-backtracking payload now runs in well under the budget', () => {
-  // `layer=(a+)+b` with a `*` appended so it reaches the regex branch.
+test('the (a+)+ backtracking payload runs in well under budget', () => {
   const m = buildLayerMatcher('(a+)+b*')
-  assert.equal(m.mode, 'regex')
-  for (const n of [24, 32, 40, 64]) {
-    runsFast(m.re, 'a'.repeat(n))
+  for (const n of [24, 32, 40, 64, 512]) {
+    const t0 = process.hrtime.bigint()
+    layerMatches(m, 'a'.repeat(n))
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6
+    assert.ok(ms < 50, `n=${n} took ${ms.toFixed(1)}ms`)
   }
 })
 
-test('pattern length is capped', () => {
-  const m = buildLayerMatcher('*' + 'a'.repeat(MAX_LAYER_PATTERN * 4))
-  assert.equal(m.mode, 'regex')
-  assert.ok(m.re.source.length <= MAX_LAYER_PATTERN + 8)
+test('wildcard CHAIN cannot cause super-linear time (review #1)', () => {
+  const m = buildLayerMatcher('*a*a*a*a*a*a*a*a*b')
+  assert.equal(m.mode, 'glob')
+  const t0 = process.hrtime.bigint()
+  const hit = layerMatches(m, 'a'.repeat(4000)) // no trailing 'b' -> worst case
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6
+  assert.equal(hit, false)
+  assert.ok(ms < 50, `chain glob took ${ms.toFixed(1)}ms`)
 })
 
-test('a value that is invalid even after escaping matches nothing rather than throwing', () => {
-  // Escaping makes this hard to trigger, but the branch must never throw.
-  assert.doesNotThrow(() => buildLayerMatcher('*\uD800*')) // lone surrogate
+test('glob semantics: case-insensitive, anchored, exact stays case-sensitive', () => {
+  assert.ok(layerMatches(buildLayerMatcher('*temp*'), 'x_TEMP_y'))
+  assert.ok(!layerMatches(buildLayerMatcher('*sst'), 'ssta'))
+  assert.ok(layerMatches(buildLayerMatcher('sst_*_2020'), 'sst_x_2020'))
+  assert.ok(layerMatches(buildLayerMatcher('exact'), 'exact'))
+  assert.ok(!layerMatches(buildLayerMatcher('exact'), 'EXACT'))
+})
+
+test('over-long patterns are rejected, not truncated (review round 2 #1)', () => {
+  // Truncating would change anchored-match semantics; an over-long pattern must match nothing.
+  assert.equal(buildLayerMatcher('*' + 'a'.repeat(MAX_LAYER_PATTERN * 4)).mode, 'nomatch')
+  assert.equal(buildLayerMatcher('a'.repeat(MAX_LAYER_PATTERN * 4)).mode, 'nomatch')
+  assert.equal(layerMatches({ mode: 'nomatch' }, 'anything'), false)
+})
+
+test('over-long subjects are rejected, not truncated (review round 2 #1)', () => {
+  // pattern a*bar vs (a + 1020 x's + bar + Z): full string ends in Z, so anchored match is false.
+  const m = buildLayerMatcher('a*bar')
+  const subject = 'a' + 'x'.repeat(1020) + 'barZ'
+  assert.ok(subject.length > MAX_LAYER_SUBJECT)
+  assert.equal(layerMatches(m, subject), false)
+  // and a correctly-ending subject under the cap still matches
+  assert.equal(layerMatches(m, 'a' + 'x'.repeat(10) + 'bar'), true)
+})
+
+test('a lone surrogate never throws', () => {
+  assert.doesNotThrow(() => buildLayerMatcher('*\uD800*'))
+  assert.doesNotThrow(() => layerMatches(buildLayerMatcher('*\uD800*'), 'x'))
 })

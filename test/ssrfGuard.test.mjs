@@ -127,3 +127,26 @@ test('assertSafeUrl returns a validated address to pin to', async () => {
   assert.ok(typeof address === 'string' && address.length > 0)
   assert.ok(family === 4 || family === 6)
 })
+
+test('blocks reserved / documentation ranges (review #5)', async () => {
+  for (const u of [
+    'http://192.0.2.1/',        // TEST-NET-1
+    'http://198.51.100.1/',     // TEST-NET-2
+    'http://203.0.113.1/',      // TEST-NET-3
+    'http://[2001:db8::1]/',    // IPv6 documentation
+    'http://[2001:10::1]/',     // ORCHID (deprecated)
+    'http://[100::1]/',         // discard-only
+    'http://[fec0::1]/',        // deprecated site-local
+    'http://[::ffff:192.0.2.1]/', // IPv4-mapped documentation
+    'http://192.88.99.1/',   // 6to4 relay anycast (deprecated)
+    'http://[2001:2::1]/',  // BMWG benchmarking
+    'http://[2001:20::1]/', // ORCHIDv2
+    'http://[3fff::1]/',     // IPv6 documentation (IANA 2024)
+  ]) {
+    await assert.rejects(
+      () => assertSafeUrl(u),
+      (err) => err instanceof BlockedTargetError,
+      `expected ${u} to be blocked`
+    )
+  }
+})
