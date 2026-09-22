@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parse } from 'arraybuffer-xml-parser'
-import { scanXmlLimits, MAX_XML_ELEMENTS, MAX_XML_DEPTH, MAX_XML_SPECIAL, MAX_XML_TEXT_RUNS } from '../src/utils/xmlGuard.mjs'
+import { scanXmlLimits, MAX_XML_ELEMENTS, MAX_XML_DEPTH, MAX_XML_SPECIAL, MAX_XML_TEXT_RUNS, MAX_XML_TAG_BYTES } from '../src/utils/xmlGuard.mjs'
 
 const within = (ms, fn) => {
   const t0 = process.hrtime.bigint()
@@ -69,4 +69,16 @@ test('caps are configurable and have headroom over real capabilities', () => {
   assert.equal(scanXmlLimits('<a>p<b/>q</a>', { maxTextRuns: 1 }), 'xml-too-many-text-runs')
   assert.ok(MAX_XML_ELEMENTS > 90000 && MAX_XML_DEPTH >= 15)
   assert.ok(MAX_XML_TEXT_RUNS > 30476 && MAX_XML_SPECIAL >= 16) // GIBS: 30476 text runs, 0 special
+})
+
+test('a single element with a huge attribute list is rejected by tag-length (round-5 #2)', () => {
+  let attrs = ''
+  for (let i = 0; i < 450000; i++) attrs += ` a${i}="123456"`
+  const bomb = `<a${attrs}/>`
+  assert.ok(bomb.length > MAX_XML_TAG_BYTES)
+  assert.equal(scanXmlLimits(bomb), 'xml-tag-too-long')
+})
+
+test('a normal tag with a few attributes is fine', () => {
+  assert.equal(scanXmlLimits('<Layer queryable="1" opaque="0"><Name>x</Name></Layer>'), null)
 })

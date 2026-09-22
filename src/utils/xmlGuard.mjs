@@ -16,6 +16,7 @@ export const MAX_XML_ELEMENTS = 200000
 export const MAX_XML_DEPTH = 50
 export const MAX_XML_SPECIAL = 4096     // comments + CDATA + PI (legit capabilities: 0–1)
 export const MAX_XML_TEXT_RUNS = 80000  // non-ws text runs (~2.6x GIBS's 30476)
+export const MAX_XML_TAG_BYTES = 65536  // a single <...> (name + attributes); legit tags are <1KB
 
 const isWsRun = (s, from, to) => {
   for (let k = from; k < to; k++) {
@@ -31,6 +32,7 @@ export function scanXmlLimits (xml, opts = {}) {
   const maxDepth = opts.maxDepth ?? MAX_XML_DEPTH
   const maxSpecial = opts.maxSpecial ?? MAX_XML_SPECIAL
   const maxTextRuns = opts.maxTextRuns ?? MAX_XML_TEXT_RUNS
+  const maxTagBytes = opts.maxTagBytes ?? MAX_XML_TAG_BYTES
 
   let depth = 0, elements = 0, special = 0, textRuns = 0
   const n = xml.length
@@ -61,6 +63,7 @@ export function scanXmlLimits (xml, opts = {}) {
     }
     const end = xml.indexOf('>', lt + 1)
     if (end === -1) break
+    if (end - lt > maxTagBytes) return 'xml-tag-too-long' // e.g. an element with a huge attribute list
     if (c === '/') { depth--; i = end + 1; continue } // closing tag
     // opening tag (name may start with a letter, '_' or Unicode char)
     if (++elements > maxElements) return 'xml-too-many-elements'
