@@ -6,7 +6,8 @@
 	"main": "index.mjs",
 	"scripts": {
 		"start": "node --watch ./src/index.mjs",
-		"prod": "export NODE_ENV=production && node --watch ./src/index.mjs"
+		"prod": "export NODE_ENV=production && node --watch ./src/index.mjs",
+		"test": "node --test test/"
 	},
 	"keywords": [
 		"fastify",

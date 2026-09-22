@@ -1,12 +1,38 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
+import { assertSafeUrl, BlockedTargetError } from '../utils/ssrfGuard.mjs'
 
 export const autoPrefix = '/ogcquery'
+
+const GENERIC_UPSTREAM_ERROR = 'could not retrieve OGC capabilities from the requested url'
 
 export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
   // Whitelist of hostnames for which SSL verification will be disabled
   const sslVerificationWhitelist = ['data.csrsr.ncu.edu.tw']
+
+  // Errors escaping a route in this plugin become ONE generic response. Fastify's default
+  // handler puts err.message into the body, which is how upstream error pages used to be
+  // echoed back to the caller (a 2026-09-21 probe of a non-existent path on a third-party
+  // host returned that host's 11 KB error page through this endpoint).
+  fastify.setErrorHandler((err, req, reply) => {
+    if (err.validation) {
+      return reply.code(400).send({ Error: 'invalid request parameters' })
+    }
+    fastify.log.error(`ogcquery error (${err.ogcReason ?? err.message})`)
+    return reply.code(502).send({ Error: GENERIC_UPSTREAM_ERROR })
+  })
+
+  // Everything past URL validation fails the same way on purpose: a caller must not be able
+  // to tell a non-existent host from a live one from a blocked internal one. Distinguishable
+  // errors turn this endpoint into an internal-host enumeration oracle, which is exactly how
+  // it was used against *.ntu.internal on 2026-09-21.
+  const upstreamFailure = (reason) => {
+    const err = new Error(GENERIC_UPSTREAM_ERROR)
+    err.statusCode = 502
+    err.ogcReason = reason
+    return err
+  }
 
   const ogcqrySchemaObj = {
     type: 'object',
@@ -80,8 +106,17 @@ export default async function ogcqry (fastify, opts) {
   }
 
   const getCapabilities = async (url, service) => {
-    const capabilitiesUrl = `${url}?service=${service}&request=GetCapabilities`
-    const hostname = new URL(capabilitiesUrl).hostname
+    let safeUrl
+    try {
+      safeUrl = await assertSafeUrl(url)
+    } catch (err) {
+      const reason = err instanceof BlockedTargetError ? err.reason : err.message
+      fastify.log.warn(`OGC capability target rejected (${reason})`)
+      throw upstreamFailure(`blocked:${reason}`)
+    }
+
+    const hostname = safeUrl.hostname
+    const capabilitiesUrl = `${safeUrl.href}?service=${service}&request=GetCapabilities`
     fastify.log.info("Fetch OGC capability url: " + capabilitiesUrl + " and host: " + hostname)
     // Determine if SSL verification should be disabled for this request
     const rejectUnauthorized = shouldRejectUnauthorized(hostname)
@@ -92,10 +127,11 @@ export default async function ogcqry (fastify, opts) {
     })
 
     try {
-      const res = await fetch(capabilitiesUrl, { dispatcher: agent }) //selectiveHttpsAgent })
+      const res = await fetch(capabilitiesUrl, { dispatcher: agent })
       if (!res.ok) {
-        const errorBody = await res.text()  // Try to read the response body
-        throw new Error(`Request failed with status ${res.status}: ${errorBody}`)
+        // Drain without reading into the error: this body used to be sent to the caller.
+        await res.text().catch(() => '')
+        throw upstreamFailure(`upstream-status:${res.status}`)
       }
 
       const xml = await res.text()
@@ -103,8 +139,8 @@ export default async function ogcqry (fastify, opts) {
       return jbody
 
     } catch (err) {
-      fastify.log.error(`Fetch error: ${err.message}`)
-      throw new Error(`Fetch error: ${err.message}`)
+      if (err.statusCode) throw err
+      throw upstreamFailure(`fetch-error:${err.message}`)
     }
   }
 
@@ -447,16 +483,16 @@ export default async function ogcqry (fastify, opts) {
     return itemx
   }
 
+  // This used to call `reply.code(400)` but `reply` was never a parameter, so a malformed
+  // `url` raised a ReferenceError and surfaced as a 500. Return null; the route responds.
   const parseUrl = (requrl) => {
-      let qurlx = decodeURIComponent(requrl).replace(/(^"|^'|"$|'$|\?(.*)$)/g, '')
-      fastify.log.info("Incoming req url: " + qurlx + " original: " + requrl)
       try {
-        const qryurl = new URL(qurlx)
-        return qryurl
-
+        let qurlx = decodeURIComponent(requrl).replace(/(^"|^'|"$|'$|\?(.*)$)/g, '')
+        fastify.log.info("Incoming req url: " + qurlx + " original: " + requrl)
+        return new URL(qurlx)
       } catch (err) {
-        fastify.log.info(err) // => TypeError, "Failed to construct URL: Invalid URL"
-        reply.code(400).send(new Error(err))
+        fastify.log.info(`Invalid url parameter: ${err.message}`)
+        return null
       }
   }
 
@@ -490,11 +526,14 @@ export default async function ogcqry (fastify, opts) {
   // 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS'
   // 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi' //multilayer wmts
       const qryurl = parseUrl(req.query.url)
+      if (!qryurl) {
+        return reply.code(400).send({ Error: 'invalid url parameter' })
+      }
       const selectedService = req.query.type.toUpperCase() //'wmts'.toUpperCase()
       if (!supportedOgcServices.includes(selectedService)) {
-        let err = "Not support: " + selectedService + " yet for OGC service type"
-        fastify.log.info(err)
-        reply.code(400).send(new Error(err))
+        // Previously fell through to the fetch after replying — hence the `return`.
+        fastify.log.info("Not support: " + selectedService + " yet for OGC service type")
+        return reply.code(400).send({ Error: 'unsupported OGC service type' })
       }
       const pattern = req.query.layer??''
 
