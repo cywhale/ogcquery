@@ -1,11 +1,18 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
 import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
-import { buildLayerMatcher } from '../utils/layerMatcher.mjs'
+import { buildLayerMatcher, layerMatches } from '../utils/layerMatcher.mjs'
 
 export const autoPrefix = '/ogcquery'
 
 const GENERIC_UPSTREAM_ERROR = 'could not retrieve OGC capabilities from the requested url'
+
+// Bound the work a single (caller-chosen, possibly hostile) upstream can impose: an overall
+// fetch deadline and a cap on decoded response bytes. Fastify's requestTimeout only covers
+// receiving the *incoming* request, not this outbound fetch, so without these a slow-loris or
+// multi-GB / decompression-bomb upstream ties up a worker or exhausts memory.
+const FETCH_TIMEOUT_MS = 20000
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
@@ -114,6 +121,33 @@ export default async function ogcqry (fastify, opts) {
     return upstreamFailure(`blocked-${what}:${reason}`)
   }
 
+  // Stream the body and abort as soon as it exceeds the cap, instead of buffering it all via
+  // res.text(). Returns decoded UTF-8. Throws upstreamFailure on overflow.
+  const readCappedText = async (res) => {
+    if (!res.body) return await res.text()
+    const reader = res.body.getReader()
+    const chunks = []
+    let total = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > MAX_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => {})
+          throw upstreamFailure('body-too-large')
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock?.()
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+
+  // Discard a body we are not going to read (redirect / error hops) without buffering it.
+  const discardBody = (res) => { res.body?.cancel?.().catch(() => {}) }
+
   const getCapabilities = async (url, service) => {
     let target, pinAddr, pinFamily
     try {
@@ -141,14 +175,14 @@ export default async function ogcqry (fastify, opts) {
         // 'manual' so every hop goes back through assertSafeUrl. Under the default 'follow'
         // a public URL that 302s to 127.0.0.1 walked straight past the guard, which only
         // ever saw the first URL.
-        res = await fetch(current, { dispatcher: agent, redirect: 'manual' })
+        res = await fetch(current, { dispatcher: agent, redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
       } catch (err) {
         throw upstreamFailure(`fetch-error:${err.message}`)
       }
 
       const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
       if (location) {
-        await res.text().catch(() => '')
+        discardBody(res)
         if (hop >= MAX_REDIRECTS) {
           throw upstreamFailure('too-many-redirects')
         }
@@ -164,12 +198,12 @@ export default async function ogcqry (fastify, opts) {
 
       try {
         if (!res.ok) {
-          // Drain without reading into the error: this body used to be sent to the caller.
-          await res.text().catch(() => '')
+          // Discard without reading into the error: this body used to be sent to the caller.
+          discardBody(res)
           throw upstreamFailure(`upstream-status:${res.status}`)
         }
 
-        const xml = await res.text()
+        const xml = await readCappedText(res)
         let jbody = parse(xml, { arrayMode: false })
         return jbody
 
@@ -302,17 +336,11 @@ export default async function ogcqry (fastify, opts) {
     } else {
         if (matcher.mode === 'exact') {
             if (layx[key_layname] !== matcher.value) return null
-        } else if (matcher.mode === 'nomatch') {
-            return null
-        } else if (matcher.mode === 'regex') {
+        } else if (matcher.mode === 'glob') {
+            // A numbered layer name is matched against its title instead (historical behaviour).
             isLayerNotNum = isNaN(parseInt(layx[key_layname]))
-            if (!isLayerNotNum) {
-                if (!matcher.re.test(layx[key_title])) {
-                    return null
-                }
-            } else if (!matcher.re.test(layx[key_layname])) {
-                return null
-            }
+            const subject = !isLayerNotNum ? layx[key_title] : layx[key_layname]
+            if (!layerMatches(matcher, subject)) return null
         }
     }
 

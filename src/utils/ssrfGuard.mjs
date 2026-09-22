@@ -73,7 +73,10 @@ const DENY_V4 = [
   ['172.16.0.0', 12],  // private
   ['192.0.0.0', 24],   // IETF protocol assignments
   ['192.168.0.0', 16], // private
+  ['192.0.2.0', 24],   // TEST-NET-1 (documentation)
   ['198.18.0.0', 15],  // benchmarking
+  ['198.51.100.0', 24],// TEST-NET-2 (documentation)
+  ['203.0.113.0', 24], // TEST-NET-3 (documentation)
   ['224.0.0.0', 4],    // multicast
   ['240.0.0.0', 4],    // reserved, incl. 255.255.255.255
 ]
@@ -136,8 +139,12 @@ const isDeniedV6 = (ip) => {
 
   if ((g[0] & 0xfe00) === 0xfc00) return true // fc00::/7 unique-local
   if ((g[0] & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if ((g[0] & 0xffc0) === 0xfec0) return true // fec0::/10 deprecated site-local
   if ((g[0] & 0xff00) === 0xff00) return true // ff00::/8 multicast
   if (g[0] === 0x0064 && g[1] === 0xff9b) return true // 64:ff9b::/96 NAT64
+  if (g[0] === 0x0100 && g[1] === 0x0000) return true // 100::/64 discard-only
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true // 2001:db8::/32 documentation
+  if (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0010) return true // 2001:10::/28 ORCHID (deprecated)
   return false
 }
 
