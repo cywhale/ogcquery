@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { assertSafeUrl, BlockedTargetError, normalizeHost } from '../src/utils/ssrfGuard.mjs'
+import { assertSafeUrl, BlockedTargetError, normalizeHost, pinnedLookup } from '../src/utils/ssrfGuard.mjs'
 
 const blocked = async (url) => {
   await assert.rejects(
@@ -78,7 +78,7 @@ test('normalizeHost folds case, brackets and trailing dots', () => {
 })
 
 test('a public literal address is allowed and returned normalized', async () => {
-  const url = await assertSafeUrl('https://140.112.65.37./some/path')
+  const { url, address, family } = await assertSafeUrl('https://140.112.65.37./some/path')
   assert.equal(url.hostname, '140.112.65.37')
   assert.equal(url.protocol, 'https:')
 })
@@ -104,6 +104,26 @@ test('a redirect Location resolving to an internal address is rejected', async (
 
 test('a relative redirect that stays on an allowed host is still followed', async () => {
   const current = 'https://example.com/ogc/wms?service=WMS&request=GetCapabilities'
-  const next = await assertSafeUrl(new URL('/capabilities.xml', current))
+  const { url: next } = await assertSafeUrl(new URL('/capabilities.xml', current))
   assert.equal(next.href, 'https://example.com/capabilities.xml')
+})
+
+test('pinnedLookup hands back the validated address in both call styles', () => {
+  const lookup = pinnedLookup('93.184.216.34', 4)
+  // callback style undici uses when it wants a single address
+  lookup('example.com', {}, (err, addr, fam) => {
+    assert.equal(err, null); assert.equal(addr, '93.184.216.34'); assert.equal(fam, 4)
+  })
+  // all: true style
+  lookup('example.com', { all: true }, (err, list) => {
+    assert.equal(err, null)
+    assert.deepEqual(list, [{ address: '93.184.216.34', family: 4 }])
+  })
+})
+
+test('assertSafeUrl returns a validated address to pin to', async () => {
+  const { url, address, family } = await assertSafeUrl('https://example.com/')
+  assert.equal(url.hostname, 'example.com')
+  assert.ok(typeof address === 'string' && address.length > 0)
+  assert.ok(family === 4 || family === 6)
 })
