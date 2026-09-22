@@ -36,10 +36,12 @@ export default async function ogcqry (fastify, opts) {
     return reply.code(502).send({ Error: GENERIC_UPSTREAM_ERROR })
   })
 
-  // Everything past URL validation fails the same way on purpose: a caller must not be able
-  // to tell a non-existent host from a live one from a blocked internal one. Distinguishable
-  // errors turn this endpoint into an internal-host enumeration oracle, which is exactly how
-  // it was used against *.ntu.internal on 2026-09-21.
+  // Everything past URL validation fails the same way on purpose: status, body and error
+  // headers are identical whether the host is non-existent, live-but-not-OGC, or a blocked
+  // internal address, so the response cannot be used as an internal-host enumeration oracle
+  // (as it was against *.ntu.internal on 2026-09-21). Response *timing* still differs and is an
+  // accepted residual: internal addresses are refused before any fetch, so timing only reveals
+  // public-host reachability.
   const upstreamFailure = (reason) => {
     const err = new Error(GENERIC_UPSTREAM_ERROR)
     err.statusCode = 502

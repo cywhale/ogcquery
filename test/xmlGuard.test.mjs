@@ -1,40 +1,59 @@
 // test/xmlGuard.test.mjs — `node --test`, no dev dependency.
 //
-// The pre-scan must count EVERY element, including tags starting with `_` or a Unicode letter —
-// an ASCII-only `[a-zA-Z]` regex let those slip past the cap (round-3 finding). It must also skip
-// comment/CDATA bodies so a `<` inside them is not miscounted, and stay fast on a bomb.
+// The pre-scan is the ONLY defence before arraybuffer-xml-parser's synchronous parse() (an
+// AbortSignal can't interrupt it). It must reject the super-linear-parse payloads BEFORE parse:
+// many comments (~2.6s/200k), interleaved text runs (~3s/200k), and `_`/Unicode element bombs —
+// while passing real capabilities (GIBS: 90k tags, 30476 text runs, 0 comments, ~160ms parse).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scanXmlLimits, MAX_XML_ELEMENTS, MAX_XML_DEPTH } from '../src/utils/xmlGuard.mjs'
+import { parse } from 'arraybuffer-xml-parser'
+import { scanXmlLimits, MAX_XML_ELEMENTS, MAX_XML_DEPTH, MAX_XML_SPECIAL, MAX_XML_TEXT_RUNS } from '../src/utils/xmlGuard.mjs'
 
 const within = (ms, fn) => {
   const t0 = process.hrtime.bigint()
   const r = fn()
-  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < ms)
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < ms, 'scan too slow')
   return r
 }
 
-test('normal small document is within limits', () => {
-  assert.equal(scanXmlLimits('<Root><Layer><Name>x</Name></Layer></Root>'), null)
+// Mirrors the route: scan first, only parse if the scan passes. This is the integration the
+// reviewer asked for — a rejected payload must never reach parse().
+const guardedParse = (xml) => {
+  const reason = scanXmlLimits(xml)
+  if (reason) return { rejected: reason }
+  return { parsed: parse(xml, { arrayMode: false }) }
+}
+
+test('normal document passes and parses', () => {
+  const r = guardedParse('<Root><Layer><Name>x</Name></Layer></Root>')
+  assert.equal(r.rejected, undefined)
+  assert.ok(r.parsed)
 })
 
-test('underscore-named tags are counted (bypass regression #1)', () => {
-  const bomb = '<a>' + '<_x>1</_x>'.repeat(700000) + '</a>'
-  assert.equal(within(200, () => scanXmlLimits(bomb)), 'xml-too-many-elements')
+test('comment-flood is rejected before parse (round-4 #1)', () => {
+  const bomb = '<a>' + 'x<!--c-->'.repeat(200000) + '</a>'
+  const r = within(200, () => guardedParse(bomb))
+  assert.equal(r.rejected, 'xml-too-many-special')
+  assert.equal(r.parsed, undefined) // parse() never called
 })
 
-test('Unicode-named tags are counted (bypass regression #1)', () => {
-  const bomb = '<a>' + '<él>1</él>'.repeat(500000) + '</a>'
-  assert.equal(within(200, () => scanXmlLimits(bomb)), 'xml-too-many-elements')
+test('interleaved text-run flood is rejected before parse (round-4 #1)', () => {
+  const bomb = '<a>' + 'x<b/>'.repeat(200000) + '</a>'
+  const r = within(200, () => guardedParse(bomb))
+  assert.equal(r.rejected, 'xml-too-many-text-runs')
+})
+
+test('underscore / Unicode element bombs are rejected', () => {
+  assert.ok(within(200, () => scanXmlLimits('<a>' + '<_x>1</_x>'.repeat(700000) + '</a>')))
+  assert.ok(within(200, () => scanXmlLimits('<a>' + '<él>1</él>'.repeat(500000) + '</a>')))
 })
 
 test('deep nesting is rejected', () => {
-  const deep = '<a>'.repeat(4000) + '</a>'.repeat(4000)
-  assert.equal(scanXmlLimits(deep), 'xml-too-deep')
+  assert.equal(scanXmlLimits('<a>'.repeat(4000) + '</a>'.repeat(4000)), 'xml-too-deep')
 })
 
-test('a < inside a comment or CDATA is not miscounted', () => {
+test('a < inside comment / CDATA is not miscounted', () => {
   assert.equal(scanXmlLimits('<a><!-- x < y < z -->' + '<L>1</L>'.repeat(3) + '</a>'), null)
   assert.equal(scanXmlLimits('<a><![CDATA[ 1 < 2 < 3 ]]><L>1</L></a>'), null)
 })
@@ -43,8 +62,11 @@ test('self-closing tags do not increase depth', () => {
   assert.equal(scanXmlLimits('<a>' + '<b/>'.repeat(1000) + '</a>'), null)
 })
 
-test('limits are configurable', () => {
-  assert.equal(scanXmlLimits('<a><b/><c/></a>', 1), 'xml-too-many-elements')
-  assert.equal(scanXmlLimits('<a><b><c/></b></a>', 200000, 1), 'xml-too-deep')
-  assert.ok(MAX_XML_ELEMENTS > 90000 && MAX_XML_DEPTH >= 15) // headroom over real capabilities
+test('caps are configurable and have headroom over real capabilities', () => {
+  assert.equal(scanXmlLimits('<a><b/><c/></a>', { maxElements: 1 }), 'xml-too-many-elements')
+  assert.equal(scanXmlLimits('<a><b><c/></b></a>', { maxDepth: 1 }), 'xml-too-deep')
+  assert.equal(scanXmlLimits('<a><!--x--><!--y--></a>', { maxSpecial: 1 }), 'xml-too-many-special')
+  assert.equal(scanXmlLimits('<a>p<b/>q</a>', { maxTextRuns: 1 }), 'xml-too-many-text-runs')
+  assert.ok(MAX_XML_ELEMENTS > 90000 && MAX_XML_DEPTH >= 15)
+  assert.ok(MAX_XML_TEXT_RUNS > 30476 && MAX_XML_SPECIAL >= 16) // GIBS: 30476 text runs, 0 special
 })
