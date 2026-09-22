@@ -82,3 +82,28 @@ test('a public literal address is allowed and returned normalized', async () => 
   assert.equal(url.hostname, '140.112.65.37')
   assert.equal(url.protocol, 'https:')
 })
+
+// --- redirect hops -------------------------------------------------------------------------
+// getCapabilities() fetches with `redirect: 'manual'` and runs exactly the expression below on
+// every hop. Under the default 'follow' the guard only ever saw the first URL, so a public host
+// that 302s to 127.0.0.1 bypassed it completely.
+
+test('a redirect Location resolving to an internal address is rejected', async () => {
+  const current = 'https://example.com/ogc/wms?service=WMS&request=GetCapabilities'
+  for (const location of [
+    'http://127.0.0.1:8013/',
+    'http://10.0.0.102:8011/v1/models',
+    'http://ex2016-003.ntu.internal/owa/',
+    '//127.0.0.1/',                 // protocol-relative, inherits https:
+    'http://127.0.0.1.nip.io/',     // public name, private answer
+    'file:///etc/passwd',
+  ]) {
+    await blocked(new URL(location, current).href)
+  }
+})
+
+test('a relative redirect that stays on an allowed host is still followed', async () => {
+  const current = 'https://example.com/ogc/wms?service=WMS&request=GetCapabilities'
+  const next = await assertSafeUrl(new URL('/capabilities.xml', current))
+  assert.equal(next.href, 'https://example.com/capabilities.xml')
+})

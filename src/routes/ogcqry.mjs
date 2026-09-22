@@ -105,42 +105,74 @@ export default async function ogcqry (fastify, opts) {
     return !sslVerificationWhitelist.includes(hostname)
   }
 
+  const MAX_REDIRECTS = 5
+
+  const rejectTarget = (err, what) => {
+    const reason = err instanceof BlockedTargetError ? err.reason : err.message
+    fastify.log.warn(`OGC capability ${what} rejected (${reason})`)
+    return upstreamFailure(`blocked-${what}:${reason}`)
+  }
+
   const getCapabilities = async (url, service) => {
-    let safeUrl
+    let target
     try {
-      safeUrl = await assertSafeUrl(url)
+      target = await assertSafeUrl(url)
     } catch (err) {
-      const reason = err instanceof BlockedTargetError ? err.reason : err.message
-      fastify.log.warn(`OGC capability target rejected (${reason})`)
-      throw upstreamFailure(`blocked:${reason}`)
+      throw rejectTarget(err, 'target')
     }
 
-    const hostname = safeUrl.hostname
-    const capabilitiesUrl = `${safeUrl.href}?service=${service}&request=GetCapabilities`
-    fastify.log.info("Fetch OGC capability url: " + capabilitiesUrl + " and host: " + hostname)
-    // Determine if SSL verification should be disabled for this request
-    const rejectUnauthorized = shouldRejectUnauthorized(hostname)
-    const agent = new Agent({
-      connect: {
-        rejectUnauthorized: rejectUnauthorized
-      }
-    })
+    let current = `${target.href}?service=${service}&request=GetCapabilities`
 
-    try {
-      const res = await fetch(capabilitiesUrl, { dispatcher: agent })
-      if (!res.ok) {
-        // Drain without reading into the error: this body used to be sent to the caller.
+    for (let hop = 0; ; hop++) {
+      fastify.log.info("Fetch OGC capability url: " + current + " and host: " + target.hostname)
+      // Determine if SSL verification should be disabled for this request
+      const rejectUnauthorized = shouldRejectUnauthorized(target.hostname)
+      const agent = new Agent({
+        connect: {
+          rejectUnauthorized: rejectUnauthorized
+        }
+      })
+
+      let res
+      try {
+        // 'manual' so every hop goes back through assertSafeUrl. Under the default 'follow'
+        // a public URL that 302s to 127.0.0.1 walked straight past the guard, which only
+        // ever saw the first URL.
+        res = await fetch(current, { dispatcher: agent, redirect: 'manual' })
+      } catch (err) {
+        throw upstreamFailure(`fetch-error:${err.message}`)
+      }
+
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
+      if (location) {
         await res.text().catch(() => '')
-        throw upstreamFailure(`upstream-status:${res.status}`)
+        if (hop >= MAX_REDIRECTS) {
+          throw upstreamFailure('too-many-redirects')
+        }
+        try {
+          target = await assertSafeUrl(new URL(location, current))
+        } catch (err) {
+          throw rejectTarget(err, 'redirect')
+        }
+        current = target.href
+        continue
       }
 
-      const xml = await res.text()
-      let jbody = parse(xml, { arrayMode: false })
-      return jbody
+      try {
+        if (!res.ok) {
+          // Drain without reading into the error: this body used to be sent to the caller.
+          await res.text().catch(() => '')
+          throw upstreamFailure(`upstream-status:${res.status}`)
+        }
 
-    } catch (err) {
-      if (err.statusCode) throw err
-      throw upstreamFailure(`fetch-error:${err.message}`)
+        const xml = await res.text()
+        let jbody = parse(xml, { arrayMode: false })
+        return jbody
+
+      } catch (err) {
+        if (err.statusCode) throw err
+        throw upstreamFailure(`parse-error:${err.message}`)
+      }
     }
   }
 
