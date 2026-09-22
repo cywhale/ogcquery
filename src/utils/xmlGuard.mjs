@@ -4,7 +4,9 @@
 // alone does not bound parse cost, and the parser's node append is super-linear when many
 // text/comment nodes accumulate as siblings: on vm37, 200k comments parse in ~2.6s and 200k
 // interleaved `x<b/>` text runs in ~3s, while 90k nested element tags (NASA GIBS) parse in ~160ms.
-// `parse()` is synchronous, so an AbortSignal can't interrupt it — this scan is the only defence.
+// `parse()` is synchronous, so an AbortSignal can't interrupt it. This scan is a cheap first
+// pass; the hard bound is boundedXmlParse.mjs, which parses in a worker with a timeout and a
+// concurrency cap.
 //
 // Element count alone can't tell these apart (200k clean elements parse in ~260ms). The cheap,
 // robust discriminators are: number of comment/CDATA/PI nodes (real capabilities have ~0) and

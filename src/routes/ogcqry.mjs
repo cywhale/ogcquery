@@ -1,4 +1,3 @@
-import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
 import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
 import { buildLayerMatcher, layerMatches } from '../utils/layerMatcher.mjs'
