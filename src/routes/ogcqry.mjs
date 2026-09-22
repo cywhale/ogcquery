@@ -1,6 +1,7 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
 import { assertSafeUrl, BlockedTargetError } from '../utils/ssrfGuard.mjs'
+import { buildLayerMatcher } from '../utils/layerMatcher.mjs'
 
 export const autoPrefix = '/ogcquery'
 
@@ -275,7 +276,7 @@ export default async function ogcqry (fastify, opts) {
     return result
   }
 
-  const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], pattern = '', prefix_wms = '') => {
+  const getSingleLayer = (layer, service = "WMS", isMulti = false, bbox0 = [], matcher = { mode: 'none' }, prefix_wms = '') => {
     let layx, bbox, re, isLayerNotNum //when layer is numbered, use title to filter fuzzy_matched layer-inputs
     let tmpstylex, legendx, tmplegendx
     let stylex = [] //Note: modified since 2024-09, breaking change from object to array of objects
@@ -296,22 +297,18 @@ export default async function ogcqry (fastify, opts) {
         //console.log("Error layer: ", layx)
         return null
     } else {
-        if (pattern && pattern.trim() !== '') {
-            let patx = pattern.trim()
-            let fuzzyFlag = patx.indexOf('*')
-            if (fuzzyFlag < 0 && layx[key_layname] !== patx) {
-                return null
-            } else if (fuzzyFlag >= 0) {
-                patx = decodeURIComponent(patx).replace(/\*/g, '(.*)')
-                re = new RegExp(`^${patx}$`, "i")
-                isLayerNotNum = isNaN(parseInt(layx[key_layname]))
-                if (!isLayerNotNum) {
-                    if (!re.test(layx[key_title])) {
-                        return null
-                    }
-                } else if (!re.test(layx[key_layname])) {
+        if (matcher.mode === 'exact') {
+            if (layx[key_layname] !== matcher.value) return null
+        } else if (matcher.mode === 'nomatch') {
+            return null
+        } else if (matcher.mode === 'regex') {
+            isLayerNotNum = isNaN(parseInt(layx[key_layname]))
+            if (!isLayerNotNum) {
+                if (!matcher.re.test(layx[key_title])) {
                     return null
                 }
+            } else if (!matcher.re.test(layx[key_layname])) {
+                return null
             }
         }
     }
@@ -567,7 +564,7 @@ export default async function ogcqry (fastify, opts) {
         fastify.log.info("Not support: " + selectedService + " yet for OGC service type")
         return reply.code(400).send({ Error: 'unsupported OGC service type' })
       }
-      const pattern = req.query.layer??''
+      const layerMatcher = buildLayerMatcher(req.query.layer)
 
       const url = qryurl.href //discard hash and search
 
@@ -631,14 +628,14 @@ export default async function ogcqry (fastify, opts) {
           if (selectedService === 'WMS' && isMultiLay && layx[key_layer] && Array.isArray(layx[key_layer])) {
             for (let j = 0; j < layx[key_layer].length; j++) {
                 layy = layx[key_layer][j]
-                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
+                itemx = getSingleLayer(layy, selectedService, isMultiLay, bbox0, layerMatcher, prefix_wms)
                 if (itemx) {
                   result.push(itemx)
                   layername.push(itemx.name)
                 }
             }
           } else {
-            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
+            itemx = getSingleLayer(layx, selectedService, isMultiLay, bbox0, layerMatcher, prefix_wms)
             if (itemx) {
                 result.push(itemx)
                 layername.push(itemx.name)
@@ -646,7 +643,7 @@ export default async function ogcqry (fastify, opts) {
           }
         }
       } else {
-        itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0, pattern, prefix_wms)
+        itemx = getSingleLayer(layers, selectedService, isMultiLay, bbox0, layerMatcher, prefix_wms)
         if (itemx) {
           result.push(itemx)
           layername.push(itemx.name)
