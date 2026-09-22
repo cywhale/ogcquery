@@ -74,6 +74,7 @@ const DENY_V4 = [
   ['192.0.0.0', 24],   // IETF protocol assignments
   ['192.168.0.0', 16], // private
   ['192.0.2.0', 24],   // TEST-NET-1 (documentation)
+  ['192.88.99.0', 24], // 6to4 relay anycast (deprecated)
   ['198.18.0.0', 15],  // benchmarking
   ['198.51.100.0', 24],// TEST-NET-2 (documentation)
   ['203.0.113.0', 24], // TEST-NET-3 (documentation)
@@ -145,6 +146,8 @@ const isDeniedV6 = (ip) => {
   if (g[0] === 0x0100 && g[1] === 0x0000) return true // 100::/64 discard-only
   if (g[0] === 0x2001 && g[1] === 0x0db8) return true // 2001:db8::/32 documentation
   if (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0010) return true // 2001:10::/28 ORCHID (deprecated)
+  if (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0020) return true // 2001:20::/28 ORCHIDv2
+  if (g[0] === 0x2001 && g[1] === 0x0002 && g[2] === 0x0000) return true // 2001:2::/48 BMWG benchmarking
   return false
 }
 

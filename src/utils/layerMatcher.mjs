@@ -2,18 +2,17 @@
 //
 // Safe matcher for the user-controlled `layer` glob, where only `*` is a wildcard.
 //
-// History: the original code fed the pattern to `new RegExp` after translating `*`; #3 escaped
-// the other metacharacters but still compiled `*` to `.*`. An external review then showed that a
-// *chain* of wildcards — `layer=*a*a*a*a*a*a*a*a*b` against an upstream layer name of 40 'a's —
-// compiles to `^.*a.*a...b$`, which still backtracks catastrophically (~3.2s offline). Regex is
-// the wrong tool here: match the glob directly with a linear two-pointer scan, which has no
-// backtracking at all (0.2ms on the same input). Cap both the pattern and the subject length.
+// History: originally compiled to `new RegExp` (only `*` translated) -> `layer=(a+)+` backtracked;
+// #3 escaped metacharacters but still turned `*` into `.*`, so a wildcard CHAIN (`*a*a*...*b`)
+// still backtracked (~3.2s offline). #6 replaced regex with a linear two-pointer glob. A second
+// review then noted the length caps *sliced* the input, which changes anchored-match semantics
+// (a truncated pattern/subject can match when the full value would not). So: over-long inputs are
+// now REJECTED (match nothing), never silently truncated.
 
 export const MAX_LAYER_PATTERN = 256
 export const MAX_LAYER_SUBJECT = 1024
 
-// Anchored glob match; `*` matches any run (including empty). O(n*m) worst case, never
-// exponential; with the caps below it is trivially bounded. Caller lowercases for case-insensitive.
+// Anchored glob match; `*` matches any run (including empty). Linear two-pointer, no backtracking.
 function globMatch (pat, txt) {
   let p = 0, t = 0, star = -1, mark = 0
   while (t < txt.length) {
@@ -29,23 +28,27 @@ function globMatch (pat, txt) {
 export function buildLayerMatcher (pattern) {
   const raw = (pattern ?? '').trim()
   if (raw === '') return { mode: 'none' }
-  // Exact match keeps the pre-decode value (matches historical behaviour); cap length so a
-  // multi-KB exact pattern cannot be used to force large comparisons.
-  if (!raw.includes('*')) return { mode: 'exact', value: raw.slice(0, MAX_LAYER_PATTERN) }
+  // Over-long pattern: reject rather than slice (slicing would match the wrong thing).
+  if (raw.length > MAX_LAYER_PATTERN) return { mode: 'nomatch' }
+  // Exact match keeps the pre-decode value (historical, case-sensitive behaviour).
+  if (!raw.includes('*')) return { mode: 'exact', value: raw }
 
   let decoded
   try { decoded = decodeURIComponent(raw) } catch { decoded = raw }
-  return { mode: 'glob', pattern: decoded.slice(0, MAX_LAYER_PATTERN).toLowerCase() }
+  if (decoded.length > MAX_LAYER_PATTERN) return { mode: 'nomatch' }
+  return { mode: 'glob', pattern: decoded.toLowerCase() }
 }
 
-// True if `subject` (an upstream-supplied layer name/title) matches the compiled matcher.
-// `none` = no filter (everything matches); exact is case-sensitive as before; glob is
-// case-insensitive and length-bounded.
+// True if `subject` (an upstream-supplied layer name/title) matches the matcher. `none` = no
+// filter; `nomatch` = never; exact is case-sensitive; glob is case-insensitive. An over-long
+// subject is rejected (false), never truncated — a partial anchored match would be incorrect.
 export function layerMatches (matcher, subject) {
   if (!matcher || matcher.mode === 'none') return true
+  if (matcher.mode === 'nomatch') return false
   if (subject == null) return false
   const s = String(subject)
+  if (s.length > MAX_LAYER_SUBJECT) return false
   if (matcher.mode === 'exact') return s === matcher.value
-  if (matcher.mode === 'glob') return globMatch(matcher.pattern, s.slice(0, MAX_LAYER_SUBJECT).toLowerCase())
+  if (matcher.mode === 'glob') return globMatch(matcher.pattern, s.toLowerCase())
   return false
 }

@@ -138,6 +138,9 @@ test('blocks reserved / documentation ranges (review #5)', async () => {
     'http://[100::1]/',         // discard-only
     'http://[fec0::1]/',        // deprecated site-local
     'http://[::ffff:192.0.2.1]/', // IPv4-mapped documentation
+    'http://192.88.99.1/',   // 6to4 relay anycast (deprecated)
+    'http://[2001:2::1]/',  // BMWG benchmarking
+    'http://[2001:20::1]/', // ORCHIDv2
   ]) {
     await assert.rejects(
       () => assertSafeUrl(u),

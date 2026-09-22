@@ -11,8 +11,14 @@ const GENERIC_UPSTREAM_ERROR = 'could not retrieve OGC capabilities from the req
 // fetch deadline and a cap on decoded response bytes. Fastify's requestTimeout only covers
 // receiving the *incoming* request, not this outbound fetch, so without these a slow-loris or
 // multi-GB / decompression-bomb upstream ties up a worker or exhausts memory.
-const FETCH_TIMEOUT_MS = 20000
+const PER_HOP_TIMEOUT_MS = 20000
+const OVERALL_TIMEOUT_MS = 30000
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+// Byte cap alone does not bound XML parse cost: 8MB of tiny elements parses in ~1.5s and
+// deep nesting overflows the stack. Legit capabilities (NASA GIBS) are ~5.3MB / 90k tags /
+// depth 9 / 217ms, so these limits leave wide headroom while rejecting the pathological cases.
+const MAX_XML_ELEMENTS = 200000
+const MAX_XML_DEPTH = 50
 
 export default async function ogcqry (fastify, opts) {
   const supportedOgcServices = ['WMS', 'WMTS']
@@ -121,6 +127,24 @@ export default async function ogcqry (fastify, opts) {
     return upstreamFailure(`blocked-${what}:${reason}`)
   }
 
+  // Cheap linear pre-scan: reject before parsing if the document has too many elements or
+  // nests too deep. Breaks early once a limit is exceeded, so a hostile doc is not fully scanned.
+  const assertParseableXml = (xml) => {
+    const re = /<(\/)?([a-zA-Z!?/])[^>]*?(\/)?>/g
+    let depth = 0, elements = 0, m
+    while ((m = re.exec(xml)) !== null) {
+      const lead = m[2]
+      if (lead === '!' || lead === '?') continue // comment / declaration / CDATA
+      if (m[1] === '/') { depth--; continue }     // closing tag
+      elements++
+      if (elements > MAX_XML_ELEMENTS) throw upstreamFailure('xml-too-many-elements')
+      if (m[3] !== '/') {                          // not self-closing
+        depth++
+        if (depth > MAX_XML_DEPTH) throw upstreamFailure('xml-too-deep')
+      }
+    }
+  }
+
   // Stream the body and abort as soon as it exceeds the cap, instead of buffering it all via
   // res.text(). Returns decoded UTF-8. Throws upstreamFailure on overflow.
   const readCappedText = async (res) => {
@@ -158,6 +182,9 @@ export default async function ogcqry (fastify, opts) {
     }
 
     let current = `${target.href}?service=${service}&request=GetCapabilities`
+    // One deadline for the whole redirect chain, plus a shorter per-hop timeout, so a chain
+    // of slow-but-under-per-hop redirects cannot add up to minutes (5 hops * 20s otherwise).
+    const overall = AbortSignal.timeout(OVERALL_TIMEOUT_MS)
 
     for (let hop = 0; ; hop++) {
       fastify.log.info("Fetch OGC capability url: " + current + " and host: " + target.hostname)
@@ -175,7 +202,8 @@ export default async function ogcqry (fastify, opts) {
         // 'manual' so every hop goes back through assertSafeUrl. Under the default 'follow'
         // a public URL that 302s to 127.0.0.1 walked straight past the guard, which only
         // ever saw the first URL.
-        res = await fetch(current, { dispatcher: agent, redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+        res = await fetch(current, { dispatcher: agent, redirect: 'manual',
+          signal: AbortSignal.any([overall, AbortSignal.timeout(PER_HOP_TIMEOUT_MS)]) })
       } catch (err) {
         throw upstreamFailure(`fetch-error:${err.message}`)
       }
@@ -204,6 +232,7 @@ export default async function ogcqry (fastify, opts) {
         }
 
         const xml = await readCappedText(res)
+        assertParseableXml(xml)
         let jbody = parse(xml, { arrayMode: false })
         return jbody
 
@@ -334,8 +363,10 @@ export default async function ogcqry (fastify, opts) {
         //console.log("Error layer: ", layx)
         return null
     } else {
-        if (matcher.mode === 'exact') {
-            if (layx[key_layname] !== matcher.value) return null
+        if (matcher.mode === 'nomatch') {
+            return null
+        } else if (matcher.mode === 'exact') {
+            if (!layerMatches(matcher, layx[key_layname])) return null
         } else if (matcher.mode === 'glob') {
             // A numbered layer name is matched against its title instead (historical behaviour).
             isLayerNotNum = isNaN(parseInt(layx[key_layname]))

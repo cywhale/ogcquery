@@ -66,20 +66,21 @@ test('glob semantics: case-insensitive, anchored, exact stays case-sensitive', (
   assert.ok(!layerMatches(buildLayerMatcher('exact'), 'EXACT'))
 })
 
-test('pattern length is capped', () => {
-  const m = buildLayerMatcher('*' + 'a'.repeat(MAX_LAYER_PATTERN * 4))
-  assert.equal(m.mode, 'glob')
-  assert.ok(m.pattern.length <= MAX_LAYER_PATTERN)
+test('over-long patterns are rejected, not truncated (review round 2 #1)', () => {
+  // Truncating would change anchored-match semantics; an over-long pattern must match nothing.
+  assert.equal(buildLayerMatcher('*' + 'a'.repeat(MAX_LAYER_PATTERN * 4)).mode, 'nomatch')
+  assert.equal(buildLayerMatcher('a'.repeat(MAX_LAYER_PATTERN * 4)).mode, 'nomatch')
+  assert.equal(layerMatches({ mode: 'nomatch' }, 'anything'), false)
 })
 
-test('exact pattern length is capped too', () => {
-  const m = buildLayerMatcher('a'.repeat(MAX_LAYER_PATTERN * 4))
-  assert.equal(m.mode, 'exact')
-  assert.ok(m.value.length <= MAX_LAYER_PATTERN)
-})
-
-test('subject length is capped so an oversized upstream name cannot blow up matching', () => {
-  assert.ok(layerMatches(buildLayerMatcher('*'), 'z'.repeat(MAX_LAYER_SUBJECT * 4)))
+test('over-long subjects are rejected, not truncated (review round 2 #1)', () => {
+  // pattern a*bar vs (a + 1020 x's + bar + Z): full string ends in Z, so anchored match is false.
+  const m = buildLayerMatcher('a*bar')
+  const subject = 'a' + 'x'.repeat(1020) + 'barZ'
+  assert.ok(subject.length > MAX_LAYER_SUBJECT)
+  assert.equal(layerMatches(m, subject), false)
+  // and a correctly-ending subject under the cap still matches
+  assert.equal(layerMatches(m, 'a' + 'x'.repeat(10) + 'bar'), true)
 })
 
 test('a lone surrogate never throws', () => {
