@@ -48,3 +48,18 @@ test('the concurrency cap rejects excess requests immediately with parse-overloa
   await settle()
   assert.equal(activeParseCount(), 0)
 })
+
+test('concurrency cap holds during simultaneous timeouts, and slots free only after exit', async () => {
+  const slow = '<a>' + 'x<!--c-->'.repeat(200000) + '</a>' // ~2.6s parse; will hit the timeout
+  const opts = { maxConcurrent: 2, timeoutMs: 300 }
+  // 4 synchronous calls, cap 2: 2 run (then time out), 2 are rejected immediately as overloaded.
+  const results = await Promise.allSettled([
+    parseXmlBounded(slow, opts), parseXmlBounded(slow, opts),
+    parseXmlBounded(slow, opts), parseXmlBounded(slow, opts)
+  ])
+  const reasons = results.map(r => r.reason?.reason)
+  assert.equal(reasons.filter(x => x === 'parse-timeout').length, 2)
+  assert.equal(reasons.filter(x => x === 'parse-overloaded').length, 2)
+  await settle()
+  assert.equal(activeParseCount(), 0) // every slot released after its worker actually exited
+})

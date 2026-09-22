@@ -33,7 +33,9 @@ export function parseXmlBounded (xml, opts = {}) {
     try {
       worker = new Worker(new URL('./parseWorker.mjs', import.meta.url), {
         workerData: { xml },
-        resourceLimits: { maxOldGenerationSizeMb: WORKER_MAX_OLD_MB }
+        // Bounds V8 heap (old + young); native/external allocation is still governed by the
+        // OS/container memory quota, which is the reliable process-wide limit.
+        resourceLimits: { maxOldGenerationSizeMb: WORKER_MAX_OLD_MB, maxYoungGenerationSizeMb: 64 }
       })
     } catch {
       return reject(new XmlParseError('parse-worker-spawn'))
@@ -45,9 +47,11 @@ export function parseXmlBounded (xml, opts = {}) {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      active--
-      worker.terminate().catch(() => {})
+      // Settle the caller now, but hold the concurrency slot until the worker has actually
+      // exited. terminate() is async, so releasing the slot first let a burst of simultaneous
+      // timeouts momentarily exceed maxConcurrent while old workers were still tearing down.
       fn(arg)
+      worker.terminate().catch(() => {}).finally(() => { active-- })
     }
     const timer = setTimeout(() => finish(reject, new XmlParseError('parse-timeout')), timeoutMs)
     worker.once('message', (msg) => (msg && msg.ok)
