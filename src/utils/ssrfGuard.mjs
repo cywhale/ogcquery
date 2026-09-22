@@ -160,7 +160,7 @@ const DENIED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa']
  * is a follow-up, not part of this fix.
  *
  * @param {URL|string} input
- * @returns {Promise<URL>} normalized, validated URL
+ * @returns {Promise<{url: URL, address: string, family: number}>} validated URL + pinned address
  * @throws {BlockedTargetError}
  */
 export async function assertSafeUrl (input) {
@@ -184,9 +184,10 @@ export async function assertSafeUrl (input) {
 
   // Literal IP: classify directly, never send it to DNS.
   if (net.isIP(host) !== 0) {
+    const fam = net.isIP(host)
     if (isDeniedIp(host)) throw new BlockedTargetError(`denied-ip-literal:${host}`)
-    url.hostname = net.isIP(host) === 6 ? `[${host}]` : host
-    return url
+    url.hostname = fam === 6 ? `[${host}]` : host
+    return { url, address: host, family: fam }
   }
 
   let addresses
@@ -205,7 +206,21 @@ export async function assertSafeUrl (input) {
   }
 
   url.hostname = host
-  return url
+  // Pin to a validated address: fetch() re-resolves the name independently, so without this a
+  // rebind between validation and connect could still reach an internal target. Every returned
+  // address passed the check above, so the first is safe to pin.
+  const chosen = addresses[0]
+  return { url, address: chosen.address, family: chosen.family }
+}
+
+// Force the connection to an already-validated address while leaving Host and TLS SNI as the
+// hostname, so certificate validation still works. Pairs with assertSafeUrl() to close the
+// resolve-then-fetch DNS-rebinding window for the hop being fetched.
+export function pinnedLookup (address, family) {
+  return (hostname, options, callback) => {
+    if (options && options.all) return callback(null, [{ address, family }])
+    return callback(null, address, family)
+  }
 }
 
 export { normalizeHost }

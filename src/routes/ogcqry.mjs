@@ -1,6 +1,6 @@
 import { parse } from 'arraybuffer-xml-parser'
 import { Agent, fetch } from 'undici'
-import { assertSafeUrl, BlockedTargetError } from '../utils/ssrfGuard.mjs'
+import { assertSafeUrl, BlockedTargetError, pinnedLookup } from '../utils/ssrfGuard.mjs'
 import { buildLayerMatcher } from '../utils/layerMatcher.mjs'
 
 export const autoPrefix = '/ogcquery'
@@ -115,9 +115,10 @@ export default async function ogcqry (fastify, opts) {
   }
 
   const getCapabilities = async (url, service) => {
-    let target
+    let target, pinAddr, pinFamily
     try {
-      target = await assertSafeUrl(url)
+      const safe = await assertSafeUrl(url)
+      target = safe.url; pinAddr = safe.address; pinFamily = safe.family
     } catch (err) {
       throw rejectTarget(err, 'target')
     }
@@ -130,7 +131,8 @@ export default async function ogcqry (fastify, opts) {
       const rejectUnauthorized = shouldRejectUnauthorized(target.hostname)
       const agent = new Agent({
         connect: {
-          rejectUnauthorized: rejectUnauthorized
+          rejectUnauthorized: rejectUnauthorized,
+          lookup: pinnedLookup(pinAddr, pinFamily)
         }
       })
 
@@ -151,7 +153,8 @@ export default async function ogcqry (fastify, opts) {
           throw upstreamFailure('too-many-redirects')
         }
         try {
-          target = await assertSafeUrl(new URL(location, current))
+          const safe = await assertSafeUrl(new URL(location, current))
+          target = safe.url; pinAddr = safe.address; pinFamily = safe.family
         } catch (err) {
           throw rejectTarget(err, 'redirect')
         }
